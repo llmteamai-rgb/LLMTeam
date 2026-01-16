@@ -1,0 +1,148 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llmteam"
+version = "1.8.0"
+description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "llmteam contributors" }
+]
+keywords = [
+    "llm",
+    "ai",
+    "agents",
+    "pipeline",
+    "workflow",
+    "multi-agent",
+    "enterprise",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.28.0",
+]
+redis = [
+    "redis>=5.0.0",
+]
+all = [
+    "asyncpg>=0.28.0",
+    "redis>=5.0.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.2.0",
+    "pytest-xdist>=3.5.0",
+    "mypy>=1.5.0",
+    "ruff>=0.1.0",
+    "black>=23.9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/llmteam/llmteam"
+Documentation = "https://llmteam.readthedocs.io"
+Repository = "https://github.com/llmteam/llmteam"
+Changelog = "https://github.com/llmteam/llmteam/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llmteam"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Limit parallel execution to prevent memory issues
+# Run with reasonable verbosity and memory cleanup
+addopts = "-v --tb=short --maxfail=5 -p no:warnings"
+# Markers for test organization
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (slower)",
+    "slow: Slow tests",
+    "memory_intensive: Tests using significant memory",
+]
+# Timeout to prevent hanging tests
+timeout = 30
+# Use asyncio_default_fixture_loop_scope for better async cleanup
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
+ignore = [
+    "E501",
+    "B008",
+]
+
+[tool.ruff.isort]
+known-first-party = ["llmteam"]
+
+[tool.black]
+target-version = ["py310"]
+line-length = 100
+
+[tool.coverage.run]
+source = ["src/llmteam"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
