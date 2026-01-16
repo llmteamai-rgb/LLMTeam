@@ -37,6 +37,9 @@ TEST_MODULES = [
     "licensing",
     "execution",
     "roles",
+    "actions",      # v1.9.0
+    "human",        # v1.9.0
+    "persistence",  # v1.9.0
 ]
 
 

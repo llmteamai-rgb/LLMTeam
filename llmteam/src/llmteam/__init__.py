@@ -4,10 +4,10 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 1.8.0 (Orchestration Intelligence)
+Version: 1.9.0 (Workflow Runtime)
 """
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 __author__ = "llmteam contributors"
 
 # Core exports
@@ -93,6 +93,39 @@ from llmteam.roles import (
     GroupOrchestrator,
 )
 
+# v1.9.0: External Actions
+from llmteam.actions import (
+    ActionType,
+    ActionStatus,
+    ActionConfig,
+    ActionContext,
+    ActionResult,
+    ActionRegistry,
+    ActionExecutor,
+)
+
+# v1.9.0: Human Interaction
+from llmteam.human import (
+    InteractionType,
+    InteractionStatus,
+    InteractionPriority,
+    InteractionRequest,
+    InteractionResponse,
+    HumanInteractionManager,
+    MemoryInteractionStore,
+)
+
+# v1.9.0: Persistence
+from llmteam.persistence import (
+    SnapshotType,
+    PipelinePhase,
+    AgentSnapshot,
+    PipelineSnapshot,
+    RestoreResult,
+    SnapshotManager,
+    MemorySnapshotStore,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -171,4 +204,31 @@ __all__ = [
     "ContentBasedRoutingStrategy",
     "ParallelFanOutStrategy",
     "GroupOrchestrator",
+
+    # External Actions (v1.9.0)
+    "ActionType",
+    "ActionStatus",
+    "ActionConfig",
+    "ActionContext",
+    "ActionResult",
+    "ActionRegistry",
+    "ActionExecutor",
+
+    # Human Interaction (v1.9.0)
+    "InteractionType",
+    "InteractionStatus",
+    "InteractionPriority",
+    "InteractionRequest",
+    "InteractionResponse",
+    "HumanInteractionManager",
+    "MemoryInteractionStore",
+
+    # Persistence (v1.9.0)
+    "SnapshotType",
+    "PipelinePhase",
+    "AgentSnapshot",
+    "PipelineSnapshot",
+    "RestoreResult",
+    "SnapshotManager",
+    "MemorySnapshotStore",
 ]
