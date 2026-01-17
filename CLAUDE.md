@@ -1,119 +1,125 @@
 # CLAUDE.md
 
-Этот файл содержит инструкции для Claude Code (claude.ai/code) при работе с кодом в этом репозитории.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Обзор проекта
+## Project Overview
 
-**llmteam** — Enterprise AI Workflow Runtime для построения multi-agent LLM пайплайнов с безопасностью, оркестрацией и workflow-возможностями.
+**llmteam** — Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
 
-Переименован из `llm-pipeline-smtrk` в v1.7.0. Python-пакет находится в поддиректории `llmteam/`.
+Renamed from `llm-pipeline-smtrk` in v1.7.0. Python package is in `llmteam/` subdirectory.
 
-**Текущая версия:** 1.9.0 (Workflow Runtime)
+**Current version:** 1.9.0 (Workflow Runtime)
 
-## Команды разработки
+## Development Commands
 
-Все команды выполняются из директории `llmteam/`.
+All commands run from `llmteam/` directory.
 
-### Установка
+### Setup
 
 ```bash
 cd llmteam
 pip install -e ".[dev]"
 
-# Проверка установки
+# Verify (bash)
+PYTHONPATH=src python -c "import llmteam; print(f'v{llmteam.__version__}')"
+
+# Verify (PowerShell)
 $env:PYTHONPATH="src"; python -c "import llmteam; print(f'v{llmteam.__version__}')"
 ```
 
-### Тестирование
+### Testing
 
-**ВАЖНО:** Тесты требуют последовательного или ограниченно-параллельного выполнения для предотвращения исчерпания памяти.
+**IMPORTANT:** Tests require sequential or limited parallel execution to prevent memory exhaustion.
 
 ```bash
-# Рекомендуется: использовать test runner
-python run_tests.py                    # Последовательно (безопаснее всего)
-python run_tests.py --parallel 2       # Ограниченный параллелизм
-python run_tests.py --module tenancy   # Один модуль
-python run_tests.py --fast             # Только unit-тесты
-python run_tests.py --coverage         # С coverage
+# Recommended: use test runner
+python run_tests.py                    # Sequential (safest)
+python run_tests.py --parallel 2       # Limited parallelism
+python run_tests.py --module tenancy   # Single module
+python run_tests.py --fast             # Unit tests only
+python run_tests.py --coverage         # With coverage
 
-# Вручную (PowerShell)
+# Manual (bash)
+PYTHONPATH=src pytest tests/tenancy/ -v
+
+# Manual (PowerShell)
 $env:PYTHONPATH="src"; pytest tests/tenancy/ -v
 
-# Запуск конкретного теста
-$env:PYTHONPATH="src"; pytest tests/tenancy/test_tenancy.py::TestTenantConfig::test_default_config -vv
+# Single test
+PYTHONPATH=src pytest tests/tenancy/test_tenancy.py::TestTenantConfig::test_default_config -vv
 ```
 
-**Избегать:** `pytest tests/ -n auto` — вызывает проблемы с памятью.
+**Avoid:** `pytest tests/ -n auto` — causes memory issues.
 
-### Качество кода
+### Code Quality
 
 ```bash
-mypy src/llmteam/          # Проверка типов
-black src/ tests/          # Форматирование
-ruff check src/ tests/     # Линтинг
+mypy src/llmteam/          # Type checking
+black src/ tests/          # Formatting
+ruff check src/ tests/     # Linting
 ```
 
-## Архитектура
+## Architecture
 
-### Структура модулей (по версиям)
+### Module Structure (by version)
 
 **v1.7.0 — Security Foundation:**
-- `tenancy/` — Мультитенантная изоляция (TenantManager, TenantContext, TenantIsolatedStore)
-- `audit/` — Аудит-трейл для compliance с SHA-256 цепочкой чексумм (AuditTrail, AuditRecord)
-- `context/` — Безопасный контекст агентов с sealed data (SecureAgentContext, SealedData)
+- `tenancy/` — Multi-tenant isolation (TenantManager, TenantContext, TenantIsolatedStore)
+- `audit/` — Compliance audit trail with SHA-256 checksum chain (AuditTrail, AuditRecord)
+- `context/` — Secure agent context with sealed data (SecureAgentContext, SealedData)
 - `ratelimit/` — Rate limiting + circuit breaker (RateLimiter, CircuitBreaker, RateLimitedExecutor)
 
 **v1.8.0 — Orchestration Intelligence:**
-- `context/hierarchical.py` — Иерархическое распространение контекста (HierarchicalContext, ContextManager)
-- `licensing/` — Лицензионные лимиты (LicenseManager, LicenseTier)
-- `execution/` — Параллельное выполнение пайплайнов (PipelineExecutor, ExecutorConfig)
-- `roles/` — Роли оркестрации (PipelineOrchestrator, GroupOrchestrator, ProcessMiningEngine)
+- `context/hierarchical.py` — Hierarchical context propagation (HierarchicalContext, ContextManager)
+- `licensing/` — License-based limits (LicenseManager, LicenseTier)
+- `execution/` — Parallel pipeline execution (PipelineExecutor, ExecutorConfig)
+- `roles/` — Orchestration roles (PipelineOrchestrator, GroupOrchestrator, ProcessMiningEngine)
 
 **v1.9.0 — Workflow Runtime:**
-- `actions/` — Внешние API/webhook вызовы (ActionExecutor, ActionRegistry)
-- `human/` — Human-in-the-loop взаимодействие (HumanInteractionManager, approval/chat/escalation)
-- `persistence/` — Snapshot-based пауза/возобновление (SnapshotManager, PipelineSnapshot)
+- `actions/` — External API/webhook calls (ActionExecutor, ActionRegistry)
+- `human/` — Human-in-the-loop interaction (HumanInteractionManager, approval/chat/escalation)
+- `persistence/` — Snapshot-based pause/resume (SnapshotManager, PipelineSnapshot)
 
-### Ключевые паттерны
+### Key Patterns
 
-**Store Pattern:** Все хранилища используют инъекцию зависимостей:
-- Абстрактный базовый класс определяет интерфейс
-- `MemoryStore` для тестирования
-- `PostgresStore` для продакшена
-- Stores находятся в поддиректориях `stores/`
+**Store Pattern:** All stores use dependency injection:
+- Abstract base class defines interface
+- `MemoryStore` for testing
+- `PostgresStore` for production
+- Stores in `stores/` subdirectories
 
-**Context Manager Pattern:** Операции в рамках тенанта:
+**Context Manager Pattern:** Tenant-scoped operations:
 ```python
 async with manager.context(tenant_id):
-    # Все операции изолированы в рамках tenant_id
+    # All operations isolated to tenant_id
     pass
 ```
 
-**Immutability для безопасности:**
-- `AuditRecord` — неизменяемый с цепочкой чексумм
-- `SealedData` — контейнер с доступом только для владельца
+**Immutability for Security:**
+- `AuditRecord` — immutable with checksum chain
+- `SealedData` — owner-only access container
 
-### Принципы безопасности
+### Security Principles
 
-1. **Горизонтальная изоляция** — Агенты НИКОГДА не видят контексты друг друга
-2. **Вертикальная видимость** — Оркестраторы видят только своих дочерних агентов (только parent→child)
-3. **Sealed Data** — Только агент-владелец может получить доступ к sealed-полям
-4. **Изоляция тенантов** — Полное разделение данных между тенантами
+1. **Horizontal Isolation** — Agents NEVER see each other's contexts
+2. **Vertical Visibility** — Orchestrators see only their child agents (parent→child only)
+3. **Sealed Data** — Only the owner agent can access sealed fields
+4. **Tenant Isolation** — Complete data separation between tenants
 
-## Создание новых модулей
+## Creating New Modules
 
-1. Создать директорию модуля с `__init__.py` содержащим экспорты
-2. Добавить импорты в родительский `llmteam/__init__.py`
-3. Создать тесты в `tests/{module}/test_{module}.py`
-4. Добавить модуль в список `TEST_MODULES` в `run_tests.py`
+1. Create module directory with `__init__.py` containing exports
+2. Add imports to parent `llmteam/__init__.py`
+3. Create tests in `tests/{module}/test_{module}.py`
+4. Add module to `TEST_MODULES` list in `run_tests.py`
 
-### Async код
+### Async Code
 
-- Использовать `asyncio.Lock()` для thread-safety
-- Тесты используют `asyncio_mode = "auto"` (декоратор `@pytest.mark.asyncio` не нужен)
-- Все async методы должны последовательно использовать `async`/`await`
+- Use `asyncio.Lock()` for thread-safety
+- Tests use `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` decorator needed)
+- All async methods must consistently use `async`/`await`
 
-## Примеры интеграции
+## Integration Examples
 
 ```python
 from llmteam.tenancy import current_tenant, TenantContext, TenantManager
@@ -126,10 +132,10 @@ from llmteam.human import HumanInteractionManager
 from llmteam.persistence import SnapshotManager
 ```
 
-## Справочная документация
+## Reference Documentation
 
-- `v170-security-foundation.md` — Спецификация v1.7.0
-- `v180-orchestration-intelligence.md` — Спецификация v1.8.0
-- `v190-workflow-runtime.md` — Спецификация v1.9.0
-- `llmteam-v170-implementation-summary.md` — Заметки по реализации v1.7.0
-- `llmteam-v190-implementation-summary.md` — Заметки по реализации v1.9.0
+- `v170-security-foundation.md` — v1.7.0 specification
+- `v180-orchestration-intelligence.md` — v1.8.0 specification
+- `v190-workflow-runtime.md` — v1.9.0 specification
+- `llmteam-v170-implementation-summary.md` — v1.7.0 implementation notes
+- `llmteam-v190-implementation-summary.md` — v1.9.0 implementation notes
