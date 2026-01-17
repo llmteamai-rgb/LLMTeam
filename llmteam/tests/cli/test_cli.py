@@ -98,7 +98,8 @@ class TestCliVersion:
         result = runner.invoke(cli, ["--version"])
 
         assert result.exit_code == 0
-        assert "2.0.0" in result.output
+        import llmteam
+        assert llmteam.__version__ in result.output
 
     def test_version_command(self):
         """version command shows detailed info."""

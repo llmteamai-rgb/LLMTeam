@@ -17,6 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ParallelJoinHandler` - Merge parallel results (all/any/first strategies)
 - Parallel execution support in SegmentRunner with `asyncio.gather`
 - Handler tests (62 new tests for handlers)
+- **JSON Schema Export** - `SegmentDefinition.json_schema()` for validation and IDE support
+- **LLM Providers** - Ready-to-use providers in `llmteam.providers`:
+  - `OpenAIProvider` - GPT-4, GPT-4o, GPT-4o-mini support
+  - `AnthropicProvider` - Claude 3.5 Sonnet, Haiku, Opus support
+  - `AzureOpenAIProvider` - Azure-hosted OpenAI models
+  - `BedrockProvider` - AWS Bedrock (Claude, Llama, Titan)
+- **Testing Utilities** - New `llmteam.testing` module:
+  - `MockLLMProvider` - Deterministic responses for testing
+  - `MockHTTPClient`, `MockStore`, `MockSecretsProvider`
+  - `SegmentTestRunner` - Isolated segment execution
+  - `StepTestHarness` - Handler unit testing
+- **Event Transports** - New `llmteam.events.transports`:
+  - `WebSocketTransport` - Bidirectional event streaming
+  - `SSETransport` - Server-Sent Events for real-time updates
+- **Examples** - New examples directory:
+  - `quickstart/` - 5-minute getting started
+  - `simple_workflow/` - Conditional branching example
+  - `fastapi_server/` - REST API integration
+- **Type Hints** - Added `py.typed` marker for PEP 561 compliance
+- New optional dependencies: `providers`, `aws`, `websockets`
 
 ### Changed
 - Moved handlers to `canvas/handlers/` package

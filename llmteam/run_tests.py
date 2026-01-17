@@ -46,6 +46,8 @@ TEST_MODULES = [
     "runtime",      # v2.0.0
     "events",       # v2.0.0
     "canvas",       # v2.0.0
+    "providers",    # v2.0.3
+    "testing",      # v2.0.3
 ]
 
 

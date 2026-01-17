@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 2.0.0
+- **Current version:** 2.0.3
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -94,9 +94,12 @@ llmteam serve --port 8000    # Start API server
 | v2.0.0 | `events/` | Worktrail events for UI |
 | v2.0.0 | `canvas/` | Segment execution engine |
 | v2.0.0 | `canvas/handlers/` | Built-in step handlers (LLM, HTTP, Transform, Condition, Parallel) |
+| v2.0.0 | `canvas/validation` | Segment validation with JSON Schema |
 | v2.0.0 | `observability/` | Structured logging (structlog) |
 | v2.0.0 | `cli/` | Command-line interface |
 | v2.0.0 | `api/` | REST + WebSocket API (FastAPI) |
+| v2.0.0 | `patterns/` | Workflow patterns (fan-out, aggregation) |
+| v2.0.0 | `ports/` | Port definitions for step I/O |
 
 ### Key Patterns
 
@@ -144,6 +147,19 @@ async with manager.context(tenant_id):
 - Tests use `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
 - All async methods must consistently use `async`/`await`
 
+### Validation
+
+Validate segment definitions before execution:
+
+```python
+from llmteam.canvas import validate_segment, SegmentDefinition
+
+result = validate_segment(segment)
+if not result.is_valid:
+    for msg in result.errors:
+        print(f"{msg.severity}: {msg.message}")
+```
+
 ## Canvas Segment Example
 
 ```python
@@ -170,13 +186,29 @@ result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtim
 
 | Handler | Step Type | Purpose |
 |---------|-----------|---------|
-| `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating |
-| `HTTPActionHandler` | `http_action` | HTTP requests (GET/POST/PUT/PATCH/DELETE) |
-| `TransformHandler` | `transform` | Data transformation with expressions/mappings |
-| `ConditionHandler` | `condition` | Conditional branching (comparison/logical ops) |
-| `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches |
-| `ParallelJoinHandler` | `parallel_join` | Merge parallel results (all/any/first) |
-| `HumanTaskHandler` | `human_task` | Human approval/input with timeout |
+| `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating and variable substitution |
+| `HTTPActionHandler` | `http_action` | HTTP requests (GET/POST/PUT/PATCH/DELETE) with headers/timeout |
+| `TransformHandler` | `transform` | Data transformation with expressions, field mappings, functions |
+| `ConditionHandler` | `condition` | Conditional branching (eq/ne/gt/lt/contains/and/or) |
+| `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches with branch_ids |
+| `ParallelJoinHandler` | `parallel_join` | Merge parallel results (all/any/first strategies) |
+| `HumanTaskHandler` | `human_task` | Human approval/input with timeout, requires HumanInteractionManager |
+
+### Custom Step Handlers
+
+Implement the handler protocol and register with `SegmentRunner.register_handler()`:
+
+```python
+from llmteam.canvas import SegmentRunner
+from llmteam.runtime import StepContext
+
+async def my_handler(step: StepDefinition, input_data: dict, context: StepContext) -> dict:
+    # Your custom logic
+    return {"result": "processed"}
+
+runner = SegmentRunner()
+runner.register_handler("my_step_type", my_handler)
+```
 
 ## Publishing to PyPI
 

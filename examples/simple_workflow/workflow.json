@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "segment_id": "ticket_classifier",
+  "name": "Support Ticket Classifier",
+  "description": "Classifies support tickets and routes to appropriate handler",
+  "entrypoint": "classify",
+  "params": {
+    "max_retries": 3,
+    "timeout_seconds": 120,
+    "parallel_execution": false
+  },
+  "steps": [
+    {
+      "step_id": "classify",
+      "type": "llm_agent",
+      "name": "Classify Ticket",
+      "config": {
+        "llm_ref": "default",
+        "prompt": "Classify this support ticket as 'urgent' or 'normal'.\n\nTicket: {ticket_text}\n\nRespond with just one word: 'urgent' or 'normal'."
+      }
+    },
+    {
+      "step_id": "check_priority",
+      "type": "condition",
+      "name": "Check Priority",
+      "config": {
+        "field": "response",
+        "operator": "contains",
+        "value": "urgent",
+        "true_branch": "urgent_handler",
+        "false_branch": "normal_handler"
+      }
+    },
+    {
+      "step_id": "urgent_handler",
+      "type": "transform",
+      "name": "Urgent Handler",
+      "config": {
+        "mappings": {
+          "priority": "'HIGH'",
+          "escalate": "True",
+          "response_time": "'1 hour'",
+          "original_ticket": "ticket_text"
+        }
+      }
+    },
+    {
+      "step_id": "normal_handler",
+      "type": "transform",
+      "name": "Normal Handler",
+      "config": {
+        "mappings": {
+          "priority": "'NORMAL'",
+          "escalate": "False",
+          "response_time": "'24 hours'",
+          "original_ticket": "ticket_text"
+        }
+      }
+    },
+    {
+      "step_id": "format_output",
+      "type": "transform",
+      "name": "Format Output",
+      "config": {
+        "expression": "input"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "classify",
+      "to": "check_priority"
+    },
+    {
+      "from": "check_priority",
+      "to": "urgent_handler",
+      "condition": "response contains 'urgent'"
+    },
+    {
+      "from": "check_priority",
+      "to": "normal_handler",
+      "condition": "response not contains 'urgent'"
+    },
+    {
+      "from": "urgent_handler",
+      "to": "format_output"
+    },
+    {
+      "from": "normal_handler",
+      "to": "format_output"
+    }
+  ],
+  "metadata": {
+    "author": "LLMTeam",
+    "created": "2026-01-17",
+    "tags": ["classification", "routing", "support"]
+  }
+}

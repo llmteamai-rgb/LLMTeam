@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmteam-ai"
-version = "2.0.2"
+version = "2.0.3"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
 license = "Apache-2.0"
@@ -61,6 +61,16 @@ validation = [
 logging = [
     "structlog>=24.1.0",
 ]
+providers = [
+    "openai>=1.0.0",
+    "anthropic>=0.8.0",
+]
+aws = [
+    "boto3>=1.28.0",
+]
+websockets = [
+    "websockets>=12.0",
+]
 all = [
     "asyncpg>=0.28.0",
     "redis>=5.0.0",
@@ -69,6 +79,10 @@ all = [
     "pydantic>=2.5.0",
     "jsonschema>=4.20.0",
     "structlog>=24.1.0",
+    "openai>=1.0.0",
+    "anthropic>=0.8.0",
+    "boto3>=1.28.0",
+    "websockets>=12.0",
 ]
 dev = [
     "pytest>=7.4.0",

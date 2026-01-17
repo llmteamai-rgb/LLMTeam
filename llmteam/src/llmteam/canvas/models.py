@@ -8,7 +8,7 @@ This module defines the JSON contract for Worktrail Segments:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, TypedDict, List
+from typing import Any, Optional, TypedDict, List, ClassVar
 import json
 
 
@@ -20,6 +20,34 @@ class PortDefinition:
     type: str = "any"  # "any", "string", "object", "array"
     required: bool = True
     description: str = ""
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for PortDefinition."""
+        return {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Port name"},
+                "type": {
+                    "type": "string",
+                    "enum": ["any", "string", "object", "array", "number", "boolean"],
+                    "default": "any",
+                    "description": "Data type accepted by the port",
+                },
+                "required": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Whether this port must be connected",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Human-readable description of the port",
+                },
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        }
 
 
 class StepPositionDict(TypedDict):
@@ -41,6 +69,19 @@ class StepPosition:
     @classmethod
     def from_dict(cls, data: dict) -> "StepPosition":
         return cls(x=data["x"], y=data["y"])
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for StepPosition."""
+        return {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number", "description": "X coordinate on canvas"},
+                "y": {"type": "number", "description": "Y coordinate on canvas"},
+            },
+            "required": ["x", "y"],
+            "additionalProperties": False,
+        }
 
 
 class StepUIMetadataDict(TypedDict, total=False):
@@ -73,6 +114,29 @@ class StepUIMetadata:
             icon=data.get("icon"),
             collapsed=data.get("collapsed", False),
         )
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for StepUIMetadata."""
+        return {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string",
+                    "description": "CSS color for the step node",
+                },
+                "icon": {
+                    "type": "string",
+                    "description": "Icon identifier for the step",
+                },
+                "collapsed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether the step is collapsed in UI",
+                },
+            },
+            "additionalProperties": False,
+        }
 
 
 class StepPortsDict(TypedDict):
@@ -156,6 +220,55 @@ class StepDefinition:
             ui=ui,
         )
 
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for StepDefinition."""
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]*$",
+                    "description": "Unique identifier for the step (lowercase, starts with letter)",
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Step type from the Step Catalog",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the step",
+                },
+                "config": {
+                    "type": "object",
+                    "description": "Step-specific configuration",
+                    "additionalProperties": True,
+                },
+                "ports": {
+                    "type": "object",
+                    "properties": {
+                        "input": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": ["input"],
+                            "description": "Input port names",
+                        },
+                        "output": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": ["output"],
+                            "description": "Output port names",
+                        },
+                    },
+                },
+                "position": StepPosition.json_schema(),
+                "ui": StepUIMetadata.json_schema(),
+            },
+            "required": ["step_id", "type"],
+            "additionalProperties": False,
+        }
+
 
 class EdgeDefinitionDict(TypedDict, total=False):
     """Dictionary representation of EdgeDefinition."""
@@ -212,6 +325,39 @@ class EdgeDefinition:
             condition=data.get("condition"),
         )
 
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for EdgeDefinition."""
+        return {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "description": "Source step ID",
+                },
+                "from_port": {
+                    "type": "string",
+                    "default": "output",
+                    "description": "Source port name",
+                },
+                "to": {
+                    "type": "string",
+                    "description": "Target step ID",
+                },
+                "to_port": {
+                    "type": "string",
+                    "default": "input",
+                    "description": "Target port name",
+                },
+                "condition": {
+                    "type": "string",
+                    "description": "Conditional expression for the edge",
+                },
+            },
+            "required": ["from", "to"],
+            "additionalProperties": False,
+        }
+
 
 class SegmentParamsDict(TypedDict):
     """Dictionary representation of SegmentParams."""
@@ -242,6 +388,33 @@ class SegmentParams:
             timeout_seconds=data.get("timeout_seconds", 300),
             parallel_execution=data.get("parallel_execution", False),
         )
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return JSON Schema for SegmentParams."""
+        return {
+            "type": "object",
+            "properties": {
+                "max_retries": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 3,
+                    "description": "Maximum retry attempts for failed steps",
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "default": 300,
+                    "description": "Segment execution timeout in seconds",
+                },
+                "parallel_execution": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enable parallel execution of independent steps",
+                },
+            },
+            "additionalProperties": False,
+        }
 
 
 class SegmentDefinitionDict(TypedDict, total=False):
@@ -388,4 +561,77 @@ class SegmentDefinition:
     def get_previous_steps(self, step_id: str) -> list[str]:
         """Get IDs of steps that precede a given step."""
         return [e.from_step for e in self.get_incoming_edges(step_id)]
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """
+        Return JSON Schema for SegmentDefinition.
+
+        This schema can be used for:
+        - Validating segment JSON files
+        - Generating documentation
+        - IDE autocompletion support
+        - Canvas UI integration
+
+        Returns:
+            dict: Complete JSON Schema for SegmentDefinition
+        """
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://llmteam.ai/schemas/segment/v1.0",
+            "title": "LLMTeam Segment Definition",
+            "description": "Worktrail segment definition for workflow execution",
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "default": "1.0",
+                    "description": "Schema version for the segment definition",
+                },
+                "segment_id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]*$",
+                    "description": "Unique identifier for the segment (lowercase, starts with letter)",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the segment",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Detailed description of the segment's purpose",
+                },
+                "entrypoint": {
+                    "type": "string",
+                    "description": "Step ID where execution begins",
+                },
+                "params": SegmentParams.json_schema(),
+                "steps": {
+                    "type": "array",
+                    "items": StepDefinition.json_schema(),
+                    "minItems": 1,
+                    "description": "List of step definitions in the segment",
+                },
+                "edges": {
+                    "type": "array",
+                    "items": EdgeDefinition.json_schema(),
+                    "default": [],
+                    "description": "List of edges connecting steps",
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "default": {},
+                    "description": "Additional metadata for the segment",
+                },
+            },
+            "required": ["segment_id", "name", "entrypoint", "steps"],
+            "additionalProperties": False,
+        }
+
+    @classmethod
+    def json_schema_string(cls, indent: int = 2) -> str:
+        """Return JSON Schema as a formatted JSON string."""
+        return json.dumps(cls.json_schema(), indent=indent)
 
