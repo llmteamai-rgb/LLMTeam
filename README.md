@@ -1,207 +1,147 @@
-# 🔓 LLMTeam Open Core Implementation
+# LLMTeam
 
-## Обзор
+**Enterprise AI Workflow Runtime** for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
 
-Этот пакет содержит изменения для реализации Open Core модели лицензирования в LLMTeam.
+[![PyPI version](https://badge.fury.io/py/llmteam-ai.svg)](https://pypi.org/project/llmteam-ai/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Структура файлов
+## Current Version: v2.0.0 — Canvas Integration
 
-```
-open-core-changes/
-├── README.md                    # Этот файл
-├── PATCHES.md                   # Список всех изменений в существующих файлах
-├── __init__.py                  # Обновлённый корневой __init__.py
-└── licensing/
-    ├── __init__.py              # Экспорты модуля licensing
-    ├── models.py                # LicenseTier enum
-    ├── manager.py               # LicenseManager, activate(), get_tier()
-    └── decorators.py            # @professional_only, @enterprise_only
-```
+### New Features in v2.0.0
 
-## Как применить изменения
+- **RuntimeContext Injection** — Unified access point for enterprise resources (stores, clients, LLMs, secrets) with dependency injection
+- **Worktrail Events** — Real-time event streaming for Canvas UI integration with EventEmitter and EventStore
+- **Segment JSON Contract** — Declarative workflow definition with SegmentDefinition, StepDefinition, EdgeDefinition
+- **Step Catalog API** — Registry of 7 built-in step types (llm_agent, transform, human_task, conditional, parallel, loop, api_call)
+- **Segment Runner** — Async execution engine for canvas segments with topological ordering and port-based data flow
 
-### Шаг 1: Замените модуль licensing
+## Installation
 
 ```bash
-# В директории проекта
-rm -rf src/llmteam/licensing/
-cp -r open-core-changes/licensing/ src/llmteam/licensing/
+pip install llmteam-ai
 ```
 
-### Шаг 2: Замените корневой __init__.py
+With optional dependencies:
 
 ```bash
-cp open-core-changes/__init__.py src/llmteam/__init__.py
+pip install llmteam-ai[api]        # FastAPI server
+pip install llmteam-ai[postgres]   # PostgreSQL stores
+pip install llmteam-ai[all]        # All features
 ```
 
-### Шаг 3: Примените патчи из PATCHES.md
+## Quick Start
 
-Откройте `PATCHES.md` и для каждого файла добавьте импорт и декоратор.
-
-**Пример для tenancy/manager.py:**
+### Define and Run a Segment
 
 ```python
-# Добавить в начало файла:
-from llmteam.licensing import enterprise_only
+from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, SegmentRunner
+from llmteam.runtime import RuntimeContextFactory
 
-# Добавить декоратор перед классом:
-@enterprise_only
-class TenantManager:
-    ...
+# Create runtime context
+factory = RuntimeContextFactory()
+runtime = factory.create_runtime(
+    tenant_id="acme",
+    instance_id="workflow-1",
+)
+
+# Define segment
+segment = SegmentDefinition(
+    segment_id="example",
+    name="Example Workflow",
+    steps=[
+        StepDefinition(step_id="start", step_type="transform", config={"expression": "input"}),
+        StepDefinition(step_id="process", step_type="llm_agent", config={"model": "gpt-4"}),
+        StepDefinition(step_id="end", step_type="transform", config={"expression": "output"}),
+    ],
+    edges=[
+        EdgeDefinition(source_step="start", source_port="output", target_step="process", target_port="input"),
+        EdgeDefinition(source_step="process", source_port="output", target_step="end", target_port="input"),
+    ],
+)
+
+# Run segment
+runner = SegmentRunner()
+result = await runner.run(
+    segment=segment,
+    input_data={"query": "Hello"},
+    runtime=runtime,
+)
+print(result.status)  # SegmentStatus.COMPLETED
 ```
 
-### Шаг 4: Проверьте работу
-
-```python
-import llmteam
-
-# Без лицензии
-print(llmteam.get_tier())  # LicenseTier.COMMUNITY
-
-# Попытка использовать Enterprise feature
-try:
-    from llmteam import TenantManager
-    tm = TenantManager()  # Ошибка!
-except llmteam.FeatureNotLicensedError as e:
-    print(e)
-    # ╔══════════════════════════════════════════════════════════════╗
-    # ║  🔒 FEATURE LOCKED: TenantManager                            ║
-    # ╠══════════════════════════════════════════════════════════════╣
-    # ║  This feature requires LLMTeam Enterprise license.           ║
-    # ║                                                              ║
-    # ║  Upgrade: https://llmteam.ai/pricing#enterprise              ║
-    # ║  Contact: sales@llmteam.ai                                   ║
-    # ╚══════════════════════════════════════════════════════════════╝
-
-# С лицензией
-llmteam.activate("LLMT-PRO-A1B2C3D4-20261231")
-print(llmteam.get_tier())  # LicenseTier.PROFESSIONAL
-
-# Теперь Professional features работают
-from llmteam import ProcessMiningEngine
-engine = ProcessMiningEngine()  # OK!
-```
-
-## Тiers и Features
-
-### 🆓 COMMUNITY (бесплатно)
-
-| Feature | Описание |
-|---------|----------|
-| Agent | Базовый агент |
-| LLMTeam | Команда агентов (до 2 команд, 5 агентов) |
-| Group | Группа команд |
-| TeamOrchestrator | Оркестратор команды |
-| CriticLoop | Паттерн критика |
-| MemoryStore | In-memory хранилище |
-| RateLimiter | Базовый rate limiter |
-| CircuitBreaker | Circuit breaker |
-| SecureAgentContext | Безопасный контекст |
-
-### 💼 PROFESSIONAL ($99/месяц)
-
-Всё из Community, плюс:
-
-| Feature | Описание |
-|---------|----------|
-| ProcessMiningEngine | Анализ процессов, XES экспорт |
-| PostgresSnapshotStore | PostgreSQL для снимков |
-| HumanInteractionManager | Human-in-the-loop |
-| ActionExecutor | Внешние действия (webhooks) |
-| RateLimitedExecutor | Продвинутый rate limiting |
-| До 10 команд | Увеличенные лимиты |
-| До 20 агентов/команда | Увеличенные лимиты |
-
-### 🏢 ENTERPRISE (custom pricing)
-
-Всё из Professional, плюс:
-
-| Feature | Описание |
-|---------|----------|
-| TenantManager | Multi-tenant изоляция |
-| AuditTrail | Аудит для compliance |
-| PostgresTenantStore | PostgreSQL для tenants |
-| PostgresAuditStore | PostgreSQL для аудита |
-| SSO Integration | Single Sign-On |
-| Priority Support | Приоритетная поддержка |
-| Unlimited | Без лимитов |
-
-## Формат лицензионного ключа
-
-```
-LLMT-{TIER}-{HASH}-{EXPIRY}
-
-Примеры:
-- LLMT-COM-ABCD1234-20261231  (Community до 31.12.2026)
-- LLMT-PRO-EFGH5678-20261231  (Professional до 31.12.2026)
-- LLMT-ENT-IJKL9012-20271231  (Enterprise до 31.12.2027)
-```
-
-## Активация лицензии
-
-### Способ 1: Через код
-
-```python
-import llmteam
-llmteam.activate("LLMT-PRO-XXXX-20261231")
-```
-
-### Способ 2: Через переменную окружения
+### CLI Usage
 
 ```bash
-export LLMTEAM_LICENSE_KEY=LLMT-PRO-XXXX-20261231
+# Validate segment definition
+llmteam validate segment.json
+
+# Run segment
+llmteam run segment.json --input-json '{"query": "Hello"}'
+
+# List available step types
+llmteam catalog
+
+# Start API server
+llmteam serve --port 8000
 ```
 
-### Способ 3: Через файл
+## Architecture
+
+### Module Structure
+
+| Version | Module | Description |
+|---------|--------|-------------|
+| **v2.0.0** | `runtime/` | RuntimeContext, StepContext, resource registries |
+| **v2.0.0** | `events/` | EventEmitter, WorktrailEvent, EventStore |
+| **v2.0.0** | `canvas/` | SegmentDefinition, StepCatalog, SegmentRunner |
+| v1.9.0 | `actions/` | External API/webhook calls |
+| v1.9.0 | `human/` | Human-in-the-loop interaction |
+| v1.9.0 | `persistence/` | Snapshot-based pause/resume |
+| v1.8.0 | `roles/` | Pipeline/Group orchestrators |
+| v1.8.0 | `execution/` | Parallel pipeline execution |
+| v1.7.0 | `tenancy/` | Multi-tenant isolation |
+| v1.7.0 | `audit/` | Compliance audit trail |
+| v1.7.0 | `context/` | Secure agent context |
+| v1.7.0 | `ratelimit/` | Rate limiting + circuit breaker |
+
+### Step Types (v2.0.0)
+
+| Type | Category | Description |
+|------|----------|-------------|
+| `llm_agent` | AI | LLM-powered agent step |
+| `transform` | Data | Data transformation |
+| `human_task` | Human | Human approval/input |
+| `conditional` | Control | Conditional branching |
+| `parallel` | Control | Parallel execution |
+| `loop` | Control | Iterative processing |
+| `api_call` | Integration | External API calls |
+
+## Development
 
 ```bash
-mkdir -p ~/.llmteam
-echo "LLMT-PRO-XXXX-20261231" > ~/.llmteam/license.key
+cd llmteam
+
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+python run_tests.py
+
+# Type checking
+mypy src/llmteam/
+
+# Formatting
+black src/ tests/
+ruff check src/ tests/
 ```
 
-## Проверка статуса
+## License
 
-```python
-import llmteam
+Apache 2.0 — see [LICENSE](llmteam/LICENSE) for details.
 
-# Вывести полный статус
-llmteam.print_license_status()
+## Links
 
-# Или программно
-info = llmteam.LicenseManager.instance().get_info()
-print(info)
-```
-
-## Генерация тестовых ключей
-
-Для разработки можно использовать ключи с любым хешем:
-
-```python
-# Professional до конца 2026
-"LLMT-PRO-TEST1234-20261231"
-
-# Enterprise до конца 2027
-"LLMT-ENT-TEST5678-20271231"
-```
-
-В production версии нужно добавить серверную валидацию ключей.
-
-## Интеграция с PyPI
-
-После применения изменений:
-
-```bash
-# Собрать пакет
-python -m build
-
-# Загрузить на PyPI
-twine upload dist/*
-```
-
-Пользователи смогут установить:
-
-```bash
-pip install llmteam
-```
-
-И использовать Community features бесплатно, а для Professional/Enterprise — активировать лицензию.
+- [PyPI Package](https://pypi.org/project/llmteam-ai/)
+- [GitHub Repository](https://github.com/llmteamai-rgb/LLMTeam)
+- [Changelog](llmteam/CHANGELOG.md)

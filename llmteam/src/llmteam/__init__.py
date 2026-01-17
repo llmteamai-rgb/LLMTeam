@@ -23,7 +23,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
