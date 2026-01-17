@@ -8,7 +8,12 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TypedDict
+
+from llmteam.observability import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class GroupDecisionType(Enum):
@@ -26,6 +31,15 @@ class GroupDecisionType(Enum):
     PARALLEL_PIPELINES = "parallel_pipelines"
     AGGREGATE_RESULTS = "aggregate_results"
     ESCALATE = "escalate"
+
+
+class GroupOrchestrationDecisionDict(TypedDict):
+    """Dictionary representation of GroupOrchestrationDecision."""
+    decision_type: str
+    target_pipelines: List[str]
+    aggregation_strategy: str
+    reason: str
+    metadata: Dict
 
 
 @dataclass
@@ -46,6 +60,26 @@ class GroupOrchestrationDecision:
     aggregation_strategy: str = "merge"
     reason: str = ""
     metadata: Dict = field(default_factory=dict)
+
+    def to_dict(self) -> GroupOrchestrationDecisionDict:
+        """Convert to dictionary."""
+        return {
+            "decision_type": self.decision_type.value,
+            "target_pipelines": self.target_pipelines,
+            "aggregation_strategy": self.aggregation_strategy,
+            "reason": self.reason,
+            "metadata": self.metadata,
+        }
+
+
+class PipelineStatusDict(TypedDict):
+    """Dictionary representation of PipelineStatus."""
+    pipeline_id: str
+    status: str
+    progress: float
+    current_step: str
+    error_count: int
+    last_update: str
 
 
 @dataclass
@@ -68,6 +102,17 @@ class PipelineStatus:
     current_step: str
     error_count: int
     last_update: datetime
+
+    def to_dict(self) -> PipelineStatusDict:
+        """Convert to dictionary."""
+        return {
+            "pipeline_id": self.pipeline_id,
+            "status": self.status,
+            "progress": self.progress,
+            "current_step": self.current_step,
+            "error_count": self.error_count,
+            "last_update": self.last_update.isoformat(),
+        }
 
 
 class GroupOrchestrationStrategy:
@@ -307,6 +352,8 @@ class GroupOrchestrator:
 
         self._pipelines: Dict[str, Any] = {}
         self._statuses: Dict[str, PipelineStatus] = {}
+        
+        logger.debug(f"GroupOrchestrator initialized for {group_id}")
 
     def register_pipeline(self, pipeline: Any) -> None:
         """
@@ -325,6 +372,7 @@ class GroupOrchestrator:
             error_count=0,
             last_update=datetime.now(),
         )
+        logger.debug(f"Registered pipeline '{pipeline_id}' to group '{self.group_id}'")
 
     def unregister_pipeline(self, pipeline_id: str) -> None:
         """
@@ -337,6 +385,7 @@ class GroupOrchestrator:
             del self._pipelines[pipeline_id]
         if pipeline_id in self._statuses:
             del self._statuses[pipeline_id]
+        logger.debug(f"Unregistered pipeline '{pipeline_id}' from group '{self.group_id}'")
 
     async def orchestrate(self, run_id: str, input_data: dict) -> dict:
         """
@@ -349,47 +398,67 @@ class GroupOrchestrator:
         Returns:
             Orchestration result
         """
-        decision = await self.strategy.decide(self._statuses, input_data)
+        logger.info(f"Starting group orchestration for run {run_id} in group {self.group_id}")
+        
+        try:
+            decision = await self.strategy.decide(self._statuses, input_data)
+            logger.debug(f"Group decision: {decision.decision_type.value} -> {decision.target_pipelines}")
 
-        if decision.decision_type == GroupDecisionType.ROUTE_TO_PIPELINE:
-            # Single pipeline execution
-            if decision.target_pipelines:
-                pipeline_id = decision.target_pipelines[0]
-                pipeline = self._pipelines.get(pipeline_id)
-                if pipeline:
-                    self._update_status(pipeline_id, "running")
-                    try:
-                        result = await pipeline.orchestrate(run_id, input_data)
-                        self._update_status(pipeline_id, "completed")
-                        return result
-                    except Exception as e:
+            if decision.decision_type == GroupDecisionType.ROUTE_TO_PIPELINE:
+                # Single pipeline execution
+                if decision.target_pipelines:
+                    pipeline_id = decision.target_pipelines[0]
+                    pipeline = self._pipelines.get(pipeline_id)
+                    if pipeline:
+                        logger.debug(f"Routing to pipeline '{pipeline_id}'")
+                        self._update_status(pipeline_id, "running")
+                        try:
+                            result = await pipeline.orchestrate(run_id, input_data)
+                            self._update_status(pipeline_id, "completed")
+                            return result
+                        except Exception as e:
+                            logger.error(f"Pipeline '{pipeline_id}' failed: {str(e)}")
+                            self._update_status(pipeline_id, "failed")
+                            return {"error": str(e)}
+
+                logger.warning("No pipeline available for routing")
+                return {"error": "no_pipeline_available"}
+
+            elif decision.decision_type == GroupDecisionType.PARALLEL_PIPELINES:
+                # Parallel execution
+                logger.info(f"Executing {len(decision.target_pipelines)} pipelines in parallel")
+                tasks = []
+                for pipeline_id in decision.target_pipelines:
+                    pipeline = self._pipelines.get(pipeline_id)
+                    if pipeline:
+                        self._update_status(pipeline_id, "running")
+                        tasks.append(pipeline.orchestrate(f"{run_id}_{pipeline_id}", input_data))
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Update statuses
+                for i, pipeline_id in enumerate(decision.target_pipelines):
+                    if isinstance(results[i], Exception):
+                        logger.error(f"Pipeline '{pipeline_id}' failed in parallel execution: {str(results[i])}")
                         self._update_status(pipeline_id, "failed")
-                        return {"error": str(e)}
+                    else:
+                        self._update_status(pipeline_id, "completed")
 
-            return {"error": "no_pipeline_available"}
+                # Aggregate results
+                return self._aggregate_results(
+                    results,
+                    decision.aggregation_strategy,
+                )
+            
+            elif decision.decision_type == GroupDecisionType.ESCALATE:
+                logger.info("Escalating decision")
+                return {"escalated": True, "reason": decision.reason}
 
-        elif decision.decision_type == GroupDecisionType.PARALLEL_PIPELINES:
-            # Parallel execution
-            tasks = []
-            for pipeline_id in decision.target_pipelines:
-                pipeline = self._pipelines.get(pipeline_id)
-                if pipeline:
-                    self._update_status(pipeline_id, "running")
-                    tasks.append(pipeline.orchestrate(f"{run_id}_{pipeline_id}", input_data))
+            return {}
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Update statuses
-            for pipeline_id in decision.target_pipelines:
-                self._update_status(pipeline_id, "completed")
-
-            # Aggregate results
-            return self._aggregate_results(
-                results,
-                decision.aggregation_strategy,
-            )
-
-        return {}
+        except Exception as e:
+            logger.error(f"Group orchestration failed: {str(e)}")
+            raise
 
     def _update_status(self, pipeline_id: str, status: str) -> None:
         """

@@ -8,8 +8,12 @@ import asyncio
 import uuid
 from typing import Any, List
 
+from llmteam.observability import get_logger
 from llmteam.execution.config import ExecutorConfig
 from llmteam.execution.stats import TaskResult, ExecutionStats
+
+
+logger = get_logger(__name__)
 
 
 def generate_uuid() -> str:
@@ -54,6 +58,8 @@ class PipelineExecutor:
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.queue_size)
         self._stats = ExecutionStats()
         self._running = False
+        
+        logger.debug(f"PipelineExecutor initialized with mode={self.config.mode}, max_concurrent={self.config.max_concurrent}")
 
     async def execute_parallel(
         self,
@@ -70,6 +76,9 @@ class PipelineExecutor:
         Returns:
             List of TaskResult for each agent
         """
+        count = len(agents)
+        logger.info(f"Executing {count} agents in parallel")
+        
         tasks = []
 
         for agent in agents:
@@ -80,15 +89,24 @@ class PipelineExecutor:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return [
-            r if isinstance(r, TaskResult) else TaskResult(
-                task_id=generate_uuid(),
-                agent_name="unknown",
-                success=False,
-                error=str(r),
-            )
-            for r in results
-        ]
+        logger.info(f"Parallel execution completed for {count} agents")
+        
+        final_results = []
+        for r in results:
+            if isinstance(r, TaskResult):
+                final_results.append(r)
+            else:
+                # Unexpected error during gather
+                error_msg = str(r)
+                logger.error(f"Unexpected error in parallel execution: {error_msg}")
+                final_results.append(TaskResult(
+                    task_id=generate_uuid(),
+                    agent_name="unknown",
+                    success=False,
+                    error=error_msg,
+                ))
+
+        return final_results
 
     async def _execute_with_semaphore(
         self,
@@ -105,9 +123,13 @@ class PipelineExecutor:
         Returns:
             TaskResult
         """
+        agent_name = getattr(agent, 'name', 'unknown')
+        
         async with self._semaphore:
             self._stats.current_running += 1
             start_time = asyncio.get_event_loop().time()
+            
+            logger.debug(f"Starting task for agent: {agent_name}")
 
             try:
                 result = await asyncio.wait_for(
@@ -119,10 +141,12 @@ class PipelineExecutor:
                 self._stats.completed_tasks += 1
                 self._stats.total_duration_ms += duration
                 self._stats.update_avg_duration()
+                
+                logger.debug(f"Task completed for agent: {agent_name} ({duration}ms)")
 
                 return TaskResult(
                     task_id=generate_uuid(),
-                    agent_name=getattr(agent, 'name', 'unknown'),
+                    agent_name=agent_name,
                     success=True,
                     result=result,
                     duration_ms=duration,
@@ -130,18 +154,20 @@ class PipelineExecutor:
 
             except asyncio.TimeoutError:
                 self._stats.failed_tasks += 1
+                logger.warning(f"Task timeout for agent: {agent_name} after {self.config.task_timeout}s")
                 return TaskResult(
                     task_id=generate_uuid(),
-                    agent_name=getattr(agent, 'name', 'unknown'),
+                    agent_name=agent_name,
                     success=False,
                     error="timeout",
                 )
 
             except Exception as e:
                 self._stats.failed_tasks += 1
+                logger.error(f"Task failed for agent: {agent_name}: {str(e)}")
                 return TaskResult(
                     task_id=generate_uuid(),
-                    agent_name=getattr(agent, 'name', 'unknown'),
+                    agent_name=agent_name,
                     success=False,
                     error=str(e),
                 )
@@ -170,8 +196,15 @@ class PipelineExecutor:
             return False
 
         queue_ratio = self._queue.qsize() / self.config.queue_size
-        return queue_ratio >= self.config.backpressure_threshold
+        is_bp = queue_ratio >= self.config.backpressure_threshold
+        
+        if is_bp:
+            self._stats.backpressure_events += 1
+            logger.warning(f"Backpressure triggered: queue utilization {queue_ratio:.2%}")
+            
+        return is_bp
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""
         self._stats = ExecutionStats()
+        logger.debug("Execution statistics reset")

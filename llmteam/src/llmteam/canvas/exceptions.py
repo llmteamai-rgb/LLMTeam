@@ -2,6 +2,13 @@
 Canvas module exceptions.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from llmteam.canvas.validation import ValidationResult
+
 
 class CanvasError(Exception):
     """Base exception for canvas module."""
@@ -12,9 +19,20 @@ class CanvasError(Exception):
 class SegmentValidationError(CanvasError):
     """Raised when segment validation fails."""
 
-    def __init__(self, errors: list[str]) -> None:
-        self.errors = errors
-        super().__init__(f"Segment validation failed: {', '.join(errors)}")
+    def __init__(
+        self,
+        errors: Union[list[str], str],
+        result: "ValidationResult | None" = None,
+    ) -> None:
+        if isinstance(errors, str):
+            self.errors = [errors]
+            message = errors
+        else:
+            self.errors = errors
+            message = f"Segment validation failed: {', '.join(errors)}"
+
+        self.result = result
+        super().__init__(message)
 
 
 class StepTypeNotFoundError(CanvasError):
@@ -32,3 +50,12 @@ class InvalidStepConfigError(CanvasError):
         self.type_id = type_id
         self.errors = errors
         super().__init__(f"Invalid config for step type '{type_id}': {', '.join(errors)}")
+
+
+class InvalidConditionError(CanvasError):
+    """Raised when edge condition cannot be evaluated."""
+
+    def __init__(self, condition: str, reason: str) -> None:
+        self.condition = condition
+        self.reason = reason
+        super().__init__(f"Invalid condition '{condition}': {reason}")

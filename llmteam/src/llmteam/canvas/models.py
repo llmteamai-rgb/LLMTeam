@@ -8,7 +8,7 @@ This module defines the JSON contract for Worktrail Segments:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict, List
 import json
 
 
@@ -22,6 +22,12 @@ class PortDefinition:
     description: str = ""
 
 
+class StepPositionDict(TypedDict):
+    """Dictionary representation of StepPosition."""
+    x: float
+    y: float
+
+
 @dataclass
 class StepPosition:
     """Position on canvas."""
@@ -29,12 +35,19 @@ class StepPosition:
     x: float
     y: float
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> StepPositionDict:
         return {"x": self.x, "y": self.y}
 
     @classmethod
     def from_dict(cls, data: dict) -> "StepPosition":
         return cls(x=data["x"], y=data["y"])
+
+
+class StepUIMetadataDict(TypedDict, total=False):
+    """Dictionary representation of StepUIMetadata."""
+    color: Optional[str]
+    icon: Optional[str]
+    collapsed: bool
 
 
 @dataclass
@@ -45,8 +58,8 @@ class StepUIMetadata:
     icon: Optional[str] = None
     collapsed: bool = False
 
-    def to_dict(self) -> dict:
-        result = {"collapsed": self.collapsed}
+    def to_dict(self) -> StepUIMetadataDict:
+        result: StepUIMetadataDict = {"collapsed": self.collapsed}
         if self.color:
             result["color"] = self.color
         if self.icon:
@@ -60,6 +73,23 @@ class StepUIMetadata:
             icon=data.get("icon"),
             collapsed=data.get("collapsed", False),
         )
+
+
+class StepPortsDict(TypedDict):
+    """Dictionary representation of step ports."""
+    input: List[str]
+    output: List[str]
+
+
+class StepDefinitionDict(TypedDict, total=False):
+    """Dictionary representation of StepDefinition."""
+    step_id: str
+    type: str
+    config: dict[str, Any]
+    ports: StepPortsDict
+    name: str
+    position: StepPositionDict
+    ui: StepUIMetadataDict
 
 
 @dataclass
@@ -83,16 +113,18 @@ class StepDefinition:
     position: Optional[StepPosition] = None
     ui: Optional[StepUIMetadata] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> StepDefinitionDict:
         """Serialize to dict."""
-        result: dict[str, Any] = {
+        ports: StepPortsDict = {
+            "input": self.input_ports,
+            "output": self.output_ports,
+        }
+        
+        result: StepDefinitionDict = {
             "step_id": self.step_id,
             "type": self.type,
             "config": self.config,
-            "ports": {
-                "input": self.input_ports,
-                "output": self.output_ports,
-            },
+            "ports": ports,
         }
         if self.name:
             result["name"] = self.name
@@ -125,6 +157,24 @@ class StepDefinition:
         )
 
 
+class EdgeDefinitionDict(TypedDict, total=False):
+    """Dictionary representation of EdgeDefinition."""
+    # reserved keyword 'from' cannot be used as key in class definition syntax for TypedDict
+    # so we use alternative syntax or accept keys matching to_dict() logic
+    # Here we stick to flexible TypedDict or just Dict[str, Any] for edge since 'from' is reserved.
+    # But wait, TypedDict keys can be string literals.
+    pass
+
+# Using functional syntax for EdgeDefinitionDict because 'from' is a keyword
+EdgeDefinitionDict = TypedDict("EdgeDefinitionDict", {
+    "from": str,
+    "from_port": str,
+    "to": str,
+    "to_port": str,
+    "condition": Optional[str],
+}, total=False)
+
+
 @dataclass
 class EdgeDefinition:
     """
@@ -139,9 +189,9 @@ class EdgeDefinition:
     to_port: str = "input"
     condition: Optional[str] = None  # Expression for conditional transitions
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> EdgeDefinitionDict:
         """Serialize to dict."""
-        result = {
+        result: EdgeDefinitionDict = {
             "from": self.from_step,
             "from_port": self.from_port,
             "to": self.to_step,
@@ -163,6 +213,13 @@ class EdgeDefinition:
         )
 
 
+class SegmentParamsDict(TypedDict):
+    """Dictionary representation of SegmentParams."""
+    max_retries: int
+    timeout_seconds: float
+    parallel_execution: bool
+
+
 @dataclass
 class SegmentParams:
     """Segment-level parameters."""
@@ -171,7 +228,7 @@ class SegmentParams:
     timeout_seconds: float = 300
     parallel_execution: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> SegmentParamsDict:
         return {
             "max_retries": self.max_retries,
             "timeout_seconds": self.timeout_seconds,
@@ -185,6 +242,19 @@ class SegmentParams:
             timeout_seconds=data.get("timeout_seconds", 300),
             parallel_execution=data.get("parallel_execution", False),
         )
+
+
+class SegmentDefinitionDict(TypedDict, total=False):
+    """Dictionary representation of SegmentDefinition."""
+    version: str
+    segment_id: str
+    name: str
+    description: str
+    entrypoint: str
+    params: SegmentParamsDict
+    steps: List[StepDefinitionDict]
+    edges: List[EdgeDefinitionDict]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -208,7 +278,7 @@ class SegmentDefinition:
     edges: list[EdgeDefinition] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> SegmentDefinitionDict:
         """Serialize to dict (JSON-compatible)."""
         return {
             "version": self.version,
@@ -318,3 +388,4 @@ class SegmentDefinition:
     def get_previous_steps(self, step_id: str) -> list[str]:
         """Get IDs of steps that precede a given step."""
         return [e.from_step for e in self.get_incoming_edges(step_id)]
+

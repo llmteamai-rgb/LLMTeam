@@ -11,7 +11,7 @@ This module defines the core data structures for audit logging:
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 import hashlib
 import json
 import uuid
@@ -95,6 +95,35 @@ class AuditSeverity(Enum):
 def generate_audit_id() -> str:
     """Generate a unique audit record ID."""
     return str(uuid.uuid4())
+
+
+class AuditRecordDict(TypedDict, total=False):
+    """Dictionary representation of AuditRecord."""
+    record_id: str
+    sequence_number: int
+    timestamp: str  # ISO format
+    event_type: str
+    severity: str
+    tenant_id: str
+    pipeline_id: str
+    run_id: str
+    agent_name: str
+    step_name: str
+    actor_type: str
+    actor_id: str
+    actor_ip: str
+    actor_user_agent: str
+    action: str
+    resource_type: str
+    resource_id: str
+    old_value: Optional[Dict[str, Any]]
+    new_value: Optional[Dict[str, Any]]
+    success: bool
+    error_message: str
+    metadata: Dict[str, Any]
+    tags: List[str]
+    checksum: str
+    previous_checksum: str
 
 
 @dataclass
@@ -215,7 +244,7 @@ class AuditRecord:
         """
         return self.checksum == self._compute_checksum()
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> AuditRecordDict:
         """Convert to dictionary for serialization."""
         return {
             "record_id": self.record_id,

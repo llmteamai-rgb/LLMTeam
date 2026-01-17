@@ -33,6 +33,8 @@ from llmteam.canvas.runner import (
     SegmentResult,
     RunConfig,
     SegmentRunner,
+    SegmentSnapshot,
+    SegmentSnapshotStore,
 )
 
 from llmteam.canvas.handlers import (
@@ -45,6 +47,16 @@ from llmteam.canvas.exceptions import (
     SegmentValidationError,
     StepTypeNotFoundError,
     InvalidStepConfigError,
+    InvalidConditionError,
+)
+
+from llmteam.canvas.validation import (
+    ValidationSeverity,
+    ValidationMessage,
+    ValidationResult,
+    SegmentValidator,
+    validate_segment,
+    validate_segment_dict,
 )
 
 __all__ = [
@@ -66,6 +78,8 @@ __all__ = [
     "SegmentResult",
     "RunConfig",
     "SegmentRunner",
+    "SegmentSnapshot",
+    "SegmentSnapshotStore",
     # Handlers
     "HumanTaskHandler",
     "create_human_task_handler",
@@ -74,4 +88,12 @@ __all__ = [
     "SegmentValidationError",
     "StepTypeNotFoundError",
     "InvalidStepConfigError",
+    "InvalidConditionError",
+    # Validation
+    "ValidationSeverity",
+    "ValidationMessage",
+    "ValidationResult",
+    "SegmentValidator",
+    "validate_segment",
+    "validate_segment_dict",
 ]

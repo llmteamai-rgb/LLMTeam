@@ -1,0 +1,24 @@
+LLMTeam
+Copyright 2024-2025 KirilinVS
+
+This product includes software developed by KirilinVS.
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE file for full license text.
+
+==============================================================================
+
+Third-Party Dependencies:
+
+- aiohttp (Apache-2.0) - Async HTTP client/server framework
+- asyncpg (Apache-2.0) - PostgreSQL database adapter (optional)
+- redis-py (MIT) - Redis client library (optional)
+
+Testing dependencies (dev only):
+- pytest (MIT) - Testing framework
+- pytest-asyncio (Apache-2.0) - Async test support
+- pytest-cov (MIT) - Coverage plugin
+- pytest-xdist (MIT) - Parallel test execution
+- mypy (MIT) - Static type checker
+- ruff (MIT) - Fast Python linter
+- black (MIT) - Code formatter

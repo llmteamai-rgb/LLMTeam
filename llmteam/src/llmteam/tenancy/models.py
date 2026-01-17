@@ -10,7 +10,7 @@ This module defines the core data structures for multi-tenant support:
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, TypedDict, List
 
 
 class TenantTier(Enum):
@@ -23,6 +23,16 @@ class TenantTier(Enum):
     STARTER = "starter"
     PROFESSIONAL = "professional"
     ENTERPRISE = "enterprise"
+
+
+class TenantLimitsDict(TypedDict):
+    """Dictionary representation of TenantLimits."""
+    max_concurrent_pipelines: int
+    max_agents_per_pipeline: int
+    max_requests_per_minute: int
+    max_storage_gb: float
+    max_runs_per_day: int
+    features: List[str]
 
 
 @dataclass
@@ -49,7 +59,7 @@ class TenantLimits:
         """Check if a feature is enabled."""
         return "*" in self.features or feature in self.features
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> TenantLimitsDict:
         """Convert to dictionary."""
         return {
             "max_concurrent_pipelines": self.max_concurrent_pipelines,
@@ -108,6 +118,27 @@ TIER_LIMITS: Dict[TenantTier, TenantLimits] = {
 def get_tier_limits(tier: TenantTier) -> TenantLimits:
     """Get default limits for a tier."""
     return TIER_LIMITS[tier]
+
+
+class TenantConfigDict(TypedDict):
+    """Dictionary representation of TenantConfig."""
+    tenant_id: str
+    name: str
+    tier: str
+    max_concurrent_pipelines: Optional[int]
+    max_agents_per_pipeline: Optional[int]
+    max_requests_per_minute: Optional[int]
+    features_enabled: List[str]
+    features_disabled: List[str]
+    allowed_actions: List[str]
+    blocked_actions: List[str]
+    data_region: str
+    encryption_key_id: str
+    audit_retention_days: int
+    metadata: Dict[str, Any]
+    created_at: str
+    updated_at: str
+    is_active: bool
 
 
 @dataclass
@@ -208,7 +239,7 @@ class TenantConfig:
         # Default: allow all
         return True
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> TenantConfigDict:
         """Convert to dictionary for serialization."""
         return {
             "tenant_id": self.tenant_id,

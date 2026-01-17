@@ -7,6 +7,7 @@ Combines orchestration strategy with process mining for intelligent pipeline man
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from llmteam.observability import get_logger
 from llmteam.roles.orchestration import (
     OrchestrationStrategy,
     OrchestrationContext,
@@ -18,6 +19,9 @@ from llmteam.roles.process_mining import (
     ProcessMetrics,
     generate_uuid,
 )
+
+
+logger = get_logger(__name__)
 
 
 class PipelineOrchestrator:
@@ -74,6 +78,8 @@ class PipelineOrchestrator:
         # State
         self._agents: Dict[str, Any] = {}
         self._execution_history: List[dict] = []
+        
+        logger.debug(f"PipelineOrchestrator initialized for {pipeline_id} (mining_enabled={enable_process_mining})")
 
     def register_agent(self, name: str, agent: Any) -> None:
         """
@@ -84,6 +90,7 @@ class PipelineOrchestrator:
             agent: Agent instance
         """
         self._agents[name] = agent
+        logger.debug(f"Registered agent '{name}' for pipeline '{self.pipeline_id}'")
 
     def unregister_agent(self, name: str) -> None:
         """
@@ -94,6 +101,7 @@ class PipelineOrchestrator:
         """
         if name in self._agents:
             del self._agents[name]
+            logger.debug(f"Unregistered agent '{name}' from pipeline '{self.pipeline_id}'")
 
     async def orchestrate(self, run_id: str, input_data: dict) -> dict:
         """
@@ -106,112 +114,129 @@ class PipelineOrchestrator:
         Returns:
             Final pipeline state
         """
+        logger.info(f"Starting orchestration for run {run_id} in pipeline {self.pipeline_id}")
+        
         current_step = "start"
         state = input_data.copy()
 
-        while current_step != "end":
-            # Build orchestration context
-            context = OrchestrationContext(
-                current_step=current_step,
-                available_agents=list(self._agents.keys()),
-                agent_states={
-                    name: self._get_agent_state(agent)
-                    for name, agent in self._agents.items()
-                },
-                execution_history=self._execution_history,
-                global_state=state,
-            )
-
-            # Make decision
-            decision = await self.strategy.decide(context)
-
-            # Record decision for process mining
-            if self.process_mining:
-                self.process_mining.record_event(ProcessEvent(
-                    event_id=generate_uuid(),
-                    timestamp=datetime.now(),
-                    activity=f"decision:{decision.decision_type}",
-                    resource="orchestrator",
-                    case_id=run_id,
-                    lifecycle="complete",
-                    attributes={
-                        "reason": decision.reason,
-                        "confidence": decision.confidence,
+        try:
+            while current_step != "end":
+                # Build orchestration context
+                context = OrchestrationContext(
+                    current_step=current_step,
+                    available_agents=list(self._agents.keys()),
+                    agent_states={
+                        name: self._get_agent_state(agent)
+                        for name, agent in self._agents.items()
                     },
-                ))
+                    execution_history=self._execution_history,
+                    global_state=state,
+                )
 
-            # Execute decision
-            if decision.decision_type == "route":
-                agents_executed = False
-                for agent_name in decision.target_agents:
-                    agent = self._agents.get(agent_name)
-                    if not agent:
-                        continue
+                # Make decision
+                decision = await self.strategy.decide(context)
+                logger.debug(f"Decision for step '{current_step}': {decision.decision_type} -> {decision.target_agents}")
 
-                    agents_executed = True
+                # Record decision for process mining
+                if self.process_mining:
+                    self.process_mining.record_event(ProcessEvent(
+                        event_id=generate_uuid(),
+                        timestamp=datetime.now(),
+                        activity=f"decision:{decision.decision_type}",
+                        resource="orchestrator",
+                        case_id=run_id,
+                        lifecycle="complete",
+                        attributes={
+                            "reason": decision.reason,
+                            "confidence": decision.confidence,
+                        },
+                    ))
 
-                    # Record start event
-                    if self.process_mining:
-                        start_time = datetime.now()
-                        self.process_mining.record_event(ProcessEvent(
-                            event_id=generate_uuid(),
-                            timestamp=start_time,
-                            activity=agent_name,
-                            resource=agent_name,
-                            case_id=run_id,
-                            lifecycle="start",
-                        ))
+                # Execute decision
+                if decision.decision_type == "route":
+                    agents_executed = False
+                    for agent_name in decision.target_agents:
+                        agent = self._agents.get(agent_name)
+                        if not agent:
+                            logger.warning(f"Agent '{agent_name}' not found, skipping")
+                            continue
 
-                    # Execute agent
-                    result = await agent.process(state)
-                    state.update(result)
+                        agents_executed = True
 
-                    # Record complete event
-                    if self.process_mining:
-                        end_time = datetime.now()
-                        duration_ms = int((end_time - start_time).total_seconds() * 1000)
-                        self.process_mining.record_event(ProcessEvent(
-                            event_id=generate_uuid(),
-                            timestamp=end_time,
-                            activity=agent_name,
-                            resource=agent_name,
-                            case_id=run_id,
-                            lifecycle="complete",
-                            duration_ms=duration_ms,
-                        ))
+                        # Record start event
+                        if self.process_mining:
+                            start_time = datetime.now()
+                            self.process_mining.record_event(ProcessEvent(
+                                event_id=generate_uuid(),
+                                timestamp=start_time,
+                                activity=agent_name,
+                                resource=agent_name,
+                                case_id=run_id,
+                                lifecycle="start",
+                            ))
 
-                    current_step = agent_name
+                        # Execute agent
+                        logger.debug(f"Executing agent '{agent_name}'")
+                        try:
+                            result = await agent.process(state)
+                            state.update(result)
+                        except Exception as e:
+                            logger.error(f"Error executing agent '{agent_name}': {str(e)}")
+                            # Consider how to handle agent failure (retry, fail, etc.)
+                            # For now, we propagate the error up or assume state is partially valid
+                            raise
 
-                # If no agents were executed (all missing), end the pipeline
-                if not agents_executed:
+                        # Record complete event
+                        if self.process_mining:
+                            end_time = datetime.now()
+                            duration_ms = int((end_time - start_time).total_seconds() * 1000)
+                            self.process_mining.record_event(ProcessEvent(
+                                event_id=generate_uuid(),
+                                timestamp=end_time,
+                                activity=agent_name,
+                                resource=agent_name,
+                                case_id=run_id,
+                                lifecycle="complete",
+                                duration_ms=duration_ms,
+                            ))
+
+                        current_step = agent_name
+
+                    # If no agents were executed (all missing), end the pipeline
+                    if not agents_executed:
+                        logger.warning("No valid agents found in route decision, ending pipeline")
+                        current_step = "end"
+
+                elif decision.decision_type == "end" or not decision.target_agents:
+                    logger.info("Orchestration completed (decision=end)")
                     current_step = "end"
 
-            elif decision.decision_type == "end" or not decision.target_agents:
-                current_step = "end"
+                elif decision.decision_type == "retry":
+                    # Retry current step (simplified)
+                    if decision.target_agents:
+                        current_step = decision.target_agents[0]
+                        logger.info(f"Retrying step '{current_step}'")
+                    else:
+                        current_step = "end"
 
-            elif decision.decision_type == "retry":
-                # Retry current step (simplified)
-                if decision.target_agents:
-                    current_step = decision.target_agents[0]
                 else:
+                    # Unknown decision type, end execution
+                    logger.warning(f"Unknown decision type '{decision.decision_type}', ending pipeline")
                     current_step = "end"
 
-            else:
-                # Unknown decision type, end execution
-                current_step = "end"
+                # Save to history
+                self._execution_history.append({
+                    "step": current_step,
+                    "decision": decision.to_dict(),
+                    "timestamp": datetime.now().isoformat(),
+                })
 
-            # Save to history
-            self._execution_history.append({
-                "step": current_step,
-                "decision": {
-                    "type": decision.decision_type,
-                    "targets": decision.target_agents,
-                    "reason": decision.reason,
-                },
-                "timestamp": datetime.now().isoformat(),
-            })
+            logger.info(f"Orchestration finished for run {run_id}")
+            return state
 
-        return state
+        except Exception as e:
+            logger.error(f"Orchestration failed for run {run_id}: {str(e)}")
+            raise
 
     def get_process_metrics(self) -> Optional[ProcessMetrics]:
         """

@@ -7,7 +7,12 @@ step types that can be used in segments.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Dict, List
+
+from llmteam.observability import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class StepCategory(Enum):
@@ -125,6 +130,7 @@ class StepCatalog:
         self._types: dict[str, StepTypeMetadata] = {}
         self._handlers: dict[str, Callable] = {}
         self._version = "1.0"
+        logger.debug("StepCatalog initialized")
 
     @classmethod
     def instance(cls) -> "StepCatalog":
@@ -138,6 +144,7 @@ class StepCatalog:
     def reset_instance(cls) -> None:
         """Reset singleton (for testing)."""
         cls._instance = None
+        logger.debug("StepCatalog instance reset")
 
     def register(
         self,
@@ -154,11 +161,17 @@ class StepCatalog:
         self._types[metadata.type_id] = metadata
         if handler:
             self._handlers[metadata.type_id] = handler
+        
+        logger.debug(f"Registered step type: {metadata.type_id} (handler: {bool(handler)})")
 
     def unregister(self, type_id: str) -> None:
         """Unregister step type."""
-        self._types.pop(type_id, None)
-        self._handlers.pop(type_id, None)
+        if type_id in self._types:
+            self._types.pop(type_id, None)
+            self._handlers.pop(type_id, None)
+            logger.info(f"Unregistered step type: {type_id}")
+        else:
+            logger.warning(f"Attempted to unregister unknown step type: {type_id}")
 
     def get(self, type_id: str) -> Optional[StepTypeMetadata]:
         """Get step type metadata."""
@@ -166,7 +179,10 @@ class StepCatalog:
 
     def get_handler(self, type_id: str) -> Optional[Callable]:
         """Get step handler."""
-        return self._handlers.get(type_id)
+        handler = self._handlers.get(type_id)
+        if not handler:
+            logger.warning(f"No handler found for step type: {type_id}")
+        return handler
 
     def has(self, type_id: str) -> bool:
         """Check if step type exists."""
@@ -204,7 +220,9 @@ class StepCatalog:
         """
         metadata = self.get(type_id)
         if not metadata:
-            return [f"Unknown step type: {type_id}"]
+            msg = f"Unknown step type: {type_id}"
+            logger.warning(msg)
+            return [msg]
 
         errors: list[str] = []
 
@@ -216,10 +234,14 @@ class StepCatalog:
                 if field_name not in config:
                     errors.append(f"Missing required field: {field_name}")
 
+        if errors:
+            logger.debug(f"Config validation failed for {type_id}: {errors}")
+            
         return errors
 
     def _register_builtin_types(self) -> None:
         """Register built-in step types."""
+        logger.debug("Registering built-in step types")
 
         # LLM Agent
         self.register(

@@ -332,4 +332,7 @@ class TestGroupOrchestrator:
 
         result = await orchestrator.orchestrate("run_1", {"input": "data"})
 
-        assert "error" in result or result == {}
+        assert "escalated" in result or "error" in result or result == {}
+        if "escalated" in result:
+            assert result["escalated"] is True
+            assert result["reason"] == "no_pipelines_available"

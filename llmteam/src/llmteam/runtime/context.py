@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
+from llmteam.observability import get_logger
 from llmteam.runtime.protocols import Store, Client, LLMProvider, SecretsProvider
 from llmteam.runtime.registries import StoreRegistry, ClientRegistry, LLMRegistry
 from llmteam.runtime.exceptions import ResourceNotFoundError, RuntimeContextError
@@ -19,6 +20,9 @@ from llmteam.runtime.exceptions import ResourceNotFoundError, RuntimeContextErro
 if TYPE_CHECKING:
     from llmteam.ratelimit import RateLimitedExecutor
     from llmteam.audit import AuditTrail
+
+
+logger = get_logger(__name__)
 
 
 # Context variable for current runtime
@@ -77,21 +81,55 @@ class RuntimeContext:
 
     def resolve_store(self, store_ref: str) -> Store:
         """Resolve store by reference."""
-        return self.stores.get(store_ref)
+        try:
+            return self.stores.get(store_ref)
+        except ResourceNotFoundError:
+            logger.error(
+                f"Store resolution failed: '{store_ref}' not found. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise
 
     def resolve_client(self, client_ref: str) -> Client:
         """Resolve client by reference."""
-        return self.clients.get(client_ref)
+        try:
+            return self.clients.get(client_ref)
+        except ResourceNotFoundError:
+            logger.error(
+                f"Client resolution failed: '{client_ref}' not found. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise
 
     def resolve_llm(self, llm_ref: str) -> LLMProvider:
         """Resolve LLM provider by reference."""
-        return self.llms.get(llm_ref)
+        try:
+            return self.llms.get(llm_ref)
+        except ResourceNotFoundError:
+            logger.error(
+                f"LLM resolution failed: '{llm_ref}' not found. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise
 
     async def resolve_secret(self, secret_ref: str) -> str:
         """Resolve secret by reference."""
         if not self.secrets:
+            logger.error(
+                f"Secret resolution failed: '{secret_ref}'. "
+                f"No SecretsProvider configured. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
             raise ResourceNotFoundError("SecretsProvider not configured")
-        return await self.secrets.get_secret(secret_ref)
+        
+        try:
+            return await self.secrets.get_secret(secret_ref)
+        except Exception as e:
+            logger.error(
+                f"Failed to retrieve secret '{secret_ref}': {str(e)}. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise
 
     def child_context(self, step_id: str) -> "StepContext":
         """Create child context for a step."""
@@ -101,7 +139,12 @@ class RuntimeContext:
         )
 
     def copy(self, **overrides: Any) -> "RuntimeContext":
-        """Create a copy with optional overrides."""
+        """
+        Create a copy with optional overrides.
+        
+        Using copy() is preferred over manual instantiation for branching contexts,
+        as it preserves existing services and hooks unless explicitly overridden.
+        """
         return RuntimeContext(
             tenant_id=overrides.get("tenant_id", self.tenant_id),
             instance_id=overrides.get("instance_id", self.instance_id),
@@ -192,9 +235,102 @@ class RuntimeContextManager:
     def __exit__(self, *args: Any) -> None:
         if self._token is not None:
             current_runtime.reset(self._token)
+            self._token = None
 
     async def __aenter__(self) -> RuntimeContext:
         return self.__enter__()
 
     async def __aexit__(self, *args: Any) -> None:
         self.__exit__(*args)
+
+
+class RuntimeContextFactory:
+    """
+    Factory for creating RuntimeContext instances.
+
+    Maintains shared registries for stores, clients, and LLMs.
+    Use create_runtime() to create isolated contexts for workflow runs.
+
+    Example:
+        factory = RuntimeContextFactory()
+        factory.register_store("redis", redis_store)
+        factory.register_llm("gpt4", openai_provider)
+
+        # Create runtime for a specific run
+        runtime = factory.create_runtime(
+            tenant_id="tenant1",
+            instance_id="workflow-123",
+        )
+    """
+
+    def __init__(
+        self,
+        stores: Optional[StoreRegistry] = None,
+        clients: Optional[ClientRegistry] = None,
+        llms: Optional[LLMRegistry] = None,
+        secrets: Optional[SecretsProvider] = None,
+    ):
+        self.stores = stores or StoreRegistry()
+        self.clients = clients or ClientRegistry()
+        self.llms = llms or LLMRegistry()
+        self.secrets = secrets
+        logger.debug("RuntimeContextFactory initialized")
+
+    def register_store(self, name: str, store: Store) -> None:
+        """Register a store."""
+        self.stores.register(name, store)
+
+    def register_client(self, name: str, client: Client) -> None:
+        """Register a client."""
+        self.clients.register(name, client)
+
+    def register_llm(self, name: str, llm: LLMProvider) -> None:
+        """Register an LLM provider."""
+        self.llms.register(name, llm)
+
+    def set_secrets_provider(self, secrets: SecretsProvider) -> None:
+        """Set the secrets provider."""
+        self.secrets = secrets
+        logger.debug("SecretsProvider configured")
+
+    def create_runtime(
+        self,
+        tenant_id: str,
+        instance_id: str,
+        run_id: Optional[str] = None,
+        segment_id: str = "",
+        **kwargs: Any,
+    ) -> RuntimeContext:
+        """
+        Create a new RuntimeContext.
+
+        Args:
+            tenant_id: Tenant identifier
+            instance_id: Workflow instance identifier
+            run_id: Run identifier (auto-generated if not provided)
+            segment_id: Segment identifier
+            **kwargs: Additional context arguments
+
+        Returns:
+            New RuntimeContext with shared registries
+        """
+        import uuid
+        
+        actual_run_id = run_id or str(uuid.uuid4())
+        
+        logger.info(
+            f"Creating runtime context: tenant={tenant_id}, "
+            f"run_id={actual_run_id}, segment={segment_id}"
+        )
+
+        return RuntimeContext(
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+            run_id=actual_run_id,
+            segment_id=segment_id,
+            stores=self.stores,
+            clients=self.clients,
+            llms=self.llms,
+            secrets=self.secrets,
+            **kwargs,
+        )

@@ -1,0 +1,100 @@
+# LLMTeam Docker Compose Configuration
+# Enterprise AI Workflow Runtime
+#
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose up llmteam     # Start only LLMTeam
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop all services
+#
+# Environment:
+#   Copy .env.example to .env and configure
+
+version: "3.8"
+
+services:
+  # -------------------------------------------------------------------------
+  # LLMTeam API Server
+  # -------------------------------------------------------------------------
+  llmteam:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llmteam:latest
+    container_name: llmteam-api
+    ports:
+      - "${LLMTEAM_PORT:-8000}:8000"
+    environment:
+      - LLMTEAM_LICENSE_KEY=${LLMTEAM_LICENSE_KEY:-}
+      - LLMTEAM_LOG_FORMAT=${LLMTEAM_LOG_FORMAT:-json}
+      - LLMTEAM_LOG_LEVEL=${LLMTEAM_LOG_LEVEL:-INFO}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - llmteam-network
+    volumes:
+      - llmteam-data:/app/data
+
+  # -------------------------------------------------------------------------
+  # Redis - Event store and caching
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: llmteam-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - llmteam-network
+    volumes:
+      - redis-data:/data
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL - Persistence store (optional)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: llmteam-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-llmteam}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-llmteam_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-llmteam}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-llmteam}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - llmteam-network
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    profiles:
+      - with-postgres
+
+networks:
+  llmteam-network:
+    driver: bridge
+
+volumes:
+  llmteam-data:
+  redis-data:
+  postgres-data:

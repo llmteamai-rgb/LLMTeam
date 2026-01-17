@@ -20,6 +20,7 @@ from llmteam.runtime.context import (
     RuntimeContext,
     StepContext,
     RuntimeContextManager,
+    RuntimeContextFactory,
     current_runtime,
     get_current_runtime,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "RuntimeContext",
     "StepContext",
     "RuntimeContextManager",
+    "RuntimeContextFactory",
     "current_runtime",
     "get_current_runtime",
     # Exceptions

@@ -23,9 +23,12 @@ Usage:
 """
 
 import sys
+import os
 import subprocess
 import argparse
+import shlex
 from pathlib import Path
+from typing import List, Optional, Dict
 
 
 # Test modules in dependency order
@@ -46,96 +49,112 @@ TEST_MODULES = [
 ]
 
 
-def run_command(cmd: list[str], env_update: dict = None) -> int:
-    """Run a command and return exit code."""
-    import os
+class TestRunner:
+    """Handles test execution configuration and running."""
 
-    env = os.environ.copy()
-    if env_update:
-        env.update(env_update)
+    def __init__(self, parallel: int = 0, coverage: bool = False, fast: bool = False):
+        self.parallel = parallel
+        self.coverage = coverage
+        self.fast = fast
+        self.env = os.environ.copy()
+        self.env["PYTHONPATH"] = "src"
 
-    print(f"\n{'='*60}")
-    print(f"Running: {' '.join(cmd)}")
-    print(f"{'='*60}\n")
+    def _log(self, message: str, header: bool = False) -> None:
+        """Print formatted logs."""
+        if header:
+            print(f"\n{'='*60}")
+            print(f"{message}")
+            print(f"{'='*60}\n")
+        else:
+            print(message)
 
-    result = subprocess.run(cmd, env=env)
-    return result.returncode
+    def _build_base_cmd(self) -> List[str]:
+        """Build the base pytest command."""
+        cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
+        
+        if self.coverage:
+            cmd.extend(["--cov=llmteam", "--cov-report=term-missing"])
+            
+        return cmd
 
+    def run_command(self, cmd: List[str]) -> int:
+        """Run a subprocess command and return exit code."""
+        cmd_str = ' '.join(shlex.quote(s) for s in cmd)
+        self._log(f"Running: {cmd_str}", header=True)
+        
+        result = subprocess.run(cmd, env=self.env)
+        return result.returncode
 
-def run_tests_sequential(coverage: bool = False, module: str = None) -> int:
-    """Run tests sequentially (safest for memory)."""
-    base_cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
+    def run_sequential(self, module: Optional[str] = None) -> int:
+        """Run tests modules sequentially."""
+        base_cmd = self._build_base_cmd()
 
-    if coverage:
-        base_cmd.extend(["--cov=llmteam", "--cov-report=term-missing"])
-
-    # Set PYTHONPATH
-    env_update = {"PYTHONPATH": "src"}
-
-    if module:
-        # Run specific module
-        cmd = base_cmd + [f"tests/{module}/"]
-        return run_command(cmd, env_update)
-    else:
-        # Run all modules one by one
+        if module:
+            target = Path("tests") / module
+            if not target.exists():
+                self._log(f"Error: Module {module} not found at {target}")
+                return 1
+            return self.run_command(base_cmd + [str(target)])
+        
         failed_modules = []
-
         for mod in TEST_MODULES:
             test_dir = Path("tests") / mod
             if not test_dir.exists():
+                self._log(f"Skipping {mod} (directory not found)")
                 continue
 
-            cmd = base_cmd + [str(test_dir)]
-            exit_code = run_command(cmd, env_update)
-
+            exit_code = self.run_command(base_cmd + [str(test_dir)])
             if exit_code != 0:
                 failed_modules.append(mod)
 
         if failed_modules:
-            print(f"\n{'='*60}")
-            print(f"FAILED MODULES: {', '.join(failed_modules)}")
-            print(f"{'='*60}\n")
+            self._log(f"FAILED MODULES: {', '.join(failed_modules)}", header=True)
             return 1
-
+            
         return 0
 
+    def run_parallel(self) -> int:
+        """Run tests with limited parallelism using pytest-xdist."""
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-v",
+            "--tb=short",
+            f"-n={self.parallel}",
+            "--dist=loadgroup",
+        ]
 
-def run_tests_parallel(workers: int = 2, coverage: bool = False) -> int:
-    """Run tests with limited parallelism."""
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "-v",
-        "--tb=short",
-        f"-n={workers}",
-        "--dist=loadgroup",
-    ]
+        if self.coverage:
+            cmd.extend(["--cov=llmteam", "--cov-report=term-missing"])
 
-    if coverage:
-        cmd.extend(["--cov=llmteam", "--cov-report=term-missing"])
+        cmd.append("tests/")
+        return self.run_command(cmd)
 
-    cmd.append("tests/")
+    def run_fast(self) -> int:
+        """Run only tests marked as 'unit'."""
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-v",
+            "--tb=short",
+            "-m",
+            "unit",
+            "tests/",
+        ]
+        return self.run_command(cmd)
 
-    env_update = {"PYTHONPATH": "src"}
-    return run_command(cmd, env_update)
-
-
-def run_tests_fast() -> int:
-    """Run only fast unit tests."""
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "-v",
-        "--tb=short",
-        "-m",
-        "unit",
-        "tests/",
-    ]
-
-    env_update = {"PYTHONPATH": "src"}
-    return run_command(cmd, env_update)
+    def execute(self, module: Optional[str] = None) -> int:
+        """Execute tests based on configuration."""
+        if self.fast:
+            return self.run_fast()
+        elif self.parallel > 0:
+            if module:
+                self._log("Warning: --module ignored when running in parallel mode")
+            return self.run_parallel()
+        else:
+            return self.run_sequential(module)
 
 
 def main():
@@ -169,13 +188,13 @@ def main():
         print("Error: Must run from llmteam/ directory")
         return 1
 
-    # Choose test mode
-    if args.fast:
-        return run_tests_fast()
-    elif args.parallel > 0:
-        return run_tests_parallel(args.parallel, args.coverage)
-    else:
-        return run_tests_sequential(args.coverage, args.module)
+    runner = TestRunner(
+        parallel=args.parallel,
+        coverage=args.coverage,
+        fast=args.fast
+    )
+    
+    return runner.execute(module=args.module)
 
 
 if __name__ == "__main__":

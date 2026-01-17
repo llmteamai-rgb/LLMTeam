@@ -8,6 +8,7 @@ and limit/feature checking.
 from datetime import datetime
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
+from llmteam.observability import get_logger
 from llmteam.tenancy.models import (
     TenantConfig,
     TenantLimits,
@@ -17,6 +18,9 @@ from llmteam.tenancy.models import (
     TenantFeatureDisabledError,
 )
 from llmteam.tenancy.context import TenantContext
+
+
+logger = get_logger(__name__)
 
 
 @runtime_checkable
@@ -92,6 +96,7 @@ class TenantManager:
         self.store = store
         self.cache_enabled = cache_enabled
         self._cache: Dict[str, TenantConfig] = {}
+        logger.debug("TenantManager initialized", extra={"cache_enabled": cache_enabled})
     
     # CRUD Operations
     
@@ -115,6 +120,7 @@ class TenantManager:
         # Load from store
         config = await self.store.get(tenant_id)
         if config is None:
+            logger.warning(f"Tenant not found: {tenant_id}")
             raise TenantNotFoundError(f"Tenant '{tenant_id}' not found")
         
         # Update cache
@@ -136,9 +142,12 @@ class TenantManager:
         Raises:
             TenantError: If tenant already exists
         """
+        logger.info(f"Creating tenant: {config.tenant_id} ({config.name})")
+        
         # Check if exists
         existing = await self.store.get(config.tenant_id)
         if existing is not None:
+            logger.error(f"Tenant already exists: {config.tenant_id}")
             raise TenantNotFoundError(f"Tenant '{config.tenant_id}' already exists")
         
         # Set timestamps
@@ -152,6 +161,7 @@ class TenantManager:
         if self.cache_enabled:
             self._cache[config.tenant_id] = config
         
+        logger.info(f"Tenant created successfully: {config.tenant_id}")
         return config
     
     async def update_tenant(self, config: TenantConfig) -> TenantConfig:
@@ -167,9 +177,12 @@ class TenantManager:
         Raises:
             TenantNotFoundError: If tenant doesn't exist
         """
+        logger.info(f"Updating tenant: {config.tenant_id}")
+        
         # Check exists
         existing = await self.store.get(config.tenant_id)
         if existing is None:
+            logger.error(f"Tenant not found during update: {config.tenant_id}")
             raise TenantNotFoundError(f"Tenant '{config.tenant_id}' not found")
         
         # Update timestamp
@@ -194,9 +207,12 @@ class TenantManager:
         Raises:
             TenantNotFoundError: If tenant doesn't exist
         """
+        logger.info(f"Deleting tenant: {tenant_id}")
+        
         # Check exists
         existing = await self.store.get(tenant_id)
         if existing is None:
+            logger.error(f"Tenant not found during deletion: {tenant_id}")
             raise TenantNotFoundError(f"Tenant '{tenant_id}' not found")
         
         # Delete
@@ -204,6 +220,7 @@ class TenantManager:
         
         # Remove from cache
         self._cache.pop(tenant_id, None)
+        logger.info(f"Tenant deleted: {tenant_id}")
     
     async def list_tenants(self, limit: int = 100, offset: int = 0) -> List[TenantConfig]:
         """
@@ -231,6 +248,16 @@ class TenantManager:
             TenantLimits with all overrides applied
         """
         return config.get_effective_limits()
+
+    def _get_limit_max(self, limits: TenantLimits, limit_type: str) -> Optional[int]:
+        """Get maximum value for a specific limit type."""
+        limit_map = {
+            "concurrent_pipelines": limits.max_concurrent_pipelines,
+            "agents_per_pipeline": limits.max_agents_per_pipeline,
+            "requests_per_minute": limits.max_requests_per_minute,
+            "runs_per_day": limits.max_runs_per_day,
+        }
+        return limit_map.get(limit_type)
     
     async def check_limit(
         self,
@@ -252,15 +279,9 @@ class TenantManager:
         config = await self.get_tenant(tenant_id)
         limits = self.get_limits(config)
         
-        limit_map = {
-            "concurrent_pipelines": limits.max_concurrent_pipelines,
-            "agents_per_pipeline": limits.max_agents_per_pipeline,
-            "requests_per_minute": limits.max_requests_per_minute,
-            "runs_per_day": limits.max_runs_per_day,
-        }
-        
-        max_value = limit_map.get(limit_type)
+        max_value = self._get_limit_max(limits, limit_type)
         if max_value is None:
+            logger.debug(f"Unknown limit type checked: {limit_type}")
             return True  # Unknown limit type, allow
         
         return current_value < max_value
@@ -285,15 +306,12 @@ class TenantManager:
         config = await self.get_tenant(tenant_id)
         limits = self.get_limits(config)
         
-        limit_map = {
-            "concurrent_pipelines": limits.max_concurrent_pipelines,
-            "agents_per_pipeline": limits.max_agents_per_pipeline,
-            "requests_per_minute": limits.max_requests_per_minute,
-            "runs_per_day": limits.max_runs_per_day,
-        }
-        
-        max_value = limit_map.get(limit_type)
+        max_value = self._get_limit_max(limits, limit_type)
         if max_value is not None and current_value >= max_value:
+            logger.warning(
+                f"Tenant limit exceeded: {tenant_id}, {limit_type} "
+                f"({current_value}/{max_value})"
+            )
             raise TenantLimitExceededError(
                 tenant_id=tenant_id,
                 limit_type=limit_type,
@@ -328,6 +346,7 @@ class TenantManager:
             TenantFeatureDisabledError: If feature is not available
         """
         if not await self.check_feature(tenant_id, feature):
+            logger.warning(f"Feature denied: {feature} for tenant {tenant_id}")
             raise TenantFeatureDisabledError(tenant_id=tenant_id, feature=feature)
     
     # Context Management
@@ -356,8 +375,10 @@ class TenantManager:
         """
         if tenant_id is None:
             self._cache.clear()
+            logger.debug("Tenant cache cleared")
         else:
             self._cache.pop(tenant_id, None)
+            logger.debug(f"Tenant cache invalidated: {tenant_id}")
     
     def preload_cache(self, configs: List[TenantConfig]) -> None:
         """
@@ -369,3 +390,4 @@ class TenantManager:
         if self.cache_enabled:
             for config in configs:
                 self._cache[config.tenant_id] = config
+            logger.debug(f"Preloaded {len(configs)} tenants into cache")

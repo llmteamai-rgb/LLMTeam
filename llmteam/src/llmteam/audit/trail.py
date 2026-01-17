@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
+from llmteam.observability import get_logger
 from llmteam.audit.models import (
     AuditRecord,
     AuditQuery,
@@ -19,6 +20,9 @@ from llmteam.audit.models import (
     generate_audit_id,
 )
 from llmteam.tenancy.context import current_tenant
+
+
+logger = get_logger(__name__)
 
 
 @runtime_checkable
@@ -115,6 +119,8 @@ class AuditTrail:
         self._last_checksum: str = ""
         self._lock = asyncio.Lock()
         self._initialized = False
+        
+        logger.debug(f"AuditTrail initialized (tenant={tenant_id}, buffer_size={buffer_size})")
     
     @property
     def tenant_id(self) -> str:
@@ -136,19 +142,24 @@ class AuditTrail:
             return
         
         async with self._lock:
-            self._sequence = await self.store.get_last_sequence(self.tenant_id)
-            
-            # Load last checksum if there are existing records
-            if self._sequence > 0:
-                records = await self.store.get_by_sequence_range(
-                    self.tenant_id,
-                    self._sequence,
-                    self._sequence,
-                )
-                if records:
-                    self._last_checksum = records[0].checksum
-            
-            self._initialized = True
+            try:
+                self._sequence = await self.store.get_last_sequence(self.tenant_id)
+                logger.debug(f"Initialized audit trail sequence: {self._sequence}")
+                
+                # Load last checksum if there are existing records
+                if self._sequence > 0:
+                    records = await self.store.get_by_sequence_range(
+                        self.tenant_id,
+                        self._sequence,
+                        self._sequence,
+                    )
+                    if records:
+                        self._last_checksum = records[0].checksum
+                
+                self._initialized = True
+            except Exception as e:
+                logger.error(f"Failed to initialize audit trail: {str(e)}")
+                raise
     
     async def log(
         self,
@@ -236,6 +247,7 @@ class AuditTrail:
             self._buffer.append(record)
             
             if self.auto_flush and len(self._buffer) >= self.buffer_size:
+                logger.debug(f"Buffer full ({len(self._buffer)} records), flushing")
                 await self._flush_unlocked()
             
             return record
@@ -245,10 +257,18 @@ class AuditTrail:
         if not self._buffer:
             return
         
-        for record in self._buffer:
-            await self.store.append(record)
-        
-        self._buffer.clear()
+        count = len(self._buffer)
+        try:
+            for record in self._buffer:
+                await self.store.append(record)
+            
+            self._buffer.clear()
+            logger.debug(f"Flushed {count} audit records")
+            
+        except Exception as e:
+            logger.error(f"Failed to flush audit records: {str(e)}")
+            # We don't clear the buffer on error so we can retry
+            raise
     
     async def flush(self) -> None:
         """
@@ -318,6 +338,7 @@ class AuditTrail:
         missing = sorted(expected_sequences - actual_sequences)
         
         if missing:
+            logger.error(f"Integrity check failed: missing {len(missing)} records in range [{start_sequence}, {end_sequence}]")
             return False, missing
         
         # Sort by sequence
@@ -328,14 +349,17 @@ class AuditTrail:
         for i, record in enumerate(records):
             # Verify record integrity
             if not record.verify_integrity():
+                logger.error(f"Integrity check failed: record {record.record_id} (seq {record.sequence_number}) corrupted")
                 return False, []
             
             # Verify chain linkage (skip first record)
             if i > 0 and record.previous_checksum != prev_checksum:
+                logger.error(f"Integrity check failed: chain broken at seq {record.sequence_number}")
                 return False, []
             
             prev_checksum = record.checksum
-        
+            
+        logger.info(f"Integrity check passed for range [{start_sequence}, {end_sequence}]")
         return True, []
     
     async def generate_report(
@@ -355,6 +379,8 @@ class AuditTrail:
         Returns:
             AuditReport with statistics and optionally records
         """
+        logger.info(f"Generating audit report for period {start} to {end}")
+        
         query = AuditQuery(
             start_time=start,
             end_time=end,
@@ -406,6 +432,8 @@ class AuditTrail:
             max_seq = max(r.sequence_number for r in records)
             chain_valid, missing_sequences = await self.verify_chain(min_seq, max_seq)
         
+        logger.info(f"Audit report generated: {len(records)} events, valid={chain_valid}")
+
         return AuditReport(
             report_id=generate_audit_id(),
             generated_at=datetime.now(timezone.utc),

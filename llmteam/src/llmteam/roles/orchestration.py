@@ -7,7 +7,12 @@ Provides decision-making logic for pipeline orchestrators.
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypedDict
+
+from llmteam.observability import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class OrchestratorRole(Enum):
@@ -21,6 +26,15 @@ class OrchestratorRole(Enum):
 
     ORCHESTRATION = "orchestration"
     PROCESS_MINING = "process_mining"
+
+
+class OrchestrationDecisionDict(TypedDict):
+    """Dictionary representation of OrchestrationDecision."""
+    decision_type: str
+    target_agents: List[str]
+    reason: str
+    confidence: float
+    metadata: Dict[str, Any]
 
 
 @dataclass
@@ -41,6 +55,16 @@ class OrchestrationDecision:
     reason: str
     confidence: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> OrchestrationDecisionDict:
+        """Convert to dictionary."""
+        return {
+            "decision_type": self.decision_type,
+            "target_agents": self.target_agents,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
@@ -213,8 +237,18 @@ class LLMBasedStrategy(OrchestrationStrategy):
             error_rate=context.error_rate,
         )
 
-        response = await self.llm.generate(prompt)
-        return self._parse_response(response)
+        try:
+            response = await self.llm.generate(prompt)
+            return self._parse_response(response)
+        except Exception as e:
+            logger.error(f"LLM orchestration failed: {str(e)}")
+            # Fallback
+            return OrchestrationDecision(
+                decision_type="error",
+                target_agents=[],
+                reason=f"llm_error: {str(e)}",
+                confidence=0.0,
+            )
 
     def _default_prompt(self) -> str:
         """
@@ -255,7 +289,8 @@ Respond with JSON: {{"decision": "route|retry|escalate|skip|end", "targets": [..
                 reason=data.get("reason", "llm_decision"),
                 confidence=data.get("confidence", 0.8),
             )
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse LLM response: {str(e)}")
             # Fallback to default decision
             return OrchestrationDecision(
                 decision_type="route",

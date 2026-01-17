@@ -7,8 +7,11 @@ This module provides the SegmentRunner for executing workflow segments.
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Protocol
 import asyncio
+import hashlib
+import json
+import uuid
 
 from llmteam.events import (
     EventEmitter,
@@ -19,6 +22,86 @@ from llmteam.events import (
 from llmteam.runtime import RuntimeContext, StepContext
 from llmteam.canvas.models import SegmentDefinition, EdgeDefinition
 from llmteam.canvas.catalog import StepCatalog
+from llmteam.canvas.exceptions import InvalidConditionError, CanvasError
+
+
+def _generate_id(prefix: str) -> str:
+    """Generate a unique ID with prefix."""
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+class SegmentSnapshotStore(Protocol):
+    """Protocol for segment snapshot storage."""
+
+    async def save(self, snapshot: "SegmentSnapshot") -> None:
+        """Save snapshot."""
+        ...
+
+    async def load(self, snapshot_id: str) -> Optional["SegmentSnapshot"]:
+        """Load snapshot by ID."""
+        ...
+
+
+@dataclass
+class SegmentSnapshot:
+    """
+    Snapshot of segment execution state for pause/resume.
+
+    Contains all information needed to resume a paused segment.
+    """
+
+    snapshot_id: str
+    run_id: str
+    segment_id: str
+    tenant_id: str
+
+    # Execution state
+    current_step: Optional[str]
+    completed_steps: list[str]
+    step_outputs: dict[str, Any]
+
+    # Input data (for entrypoint)
+    input_data: dict[str, Any]
+
+    # Timing
+    created_at: datetime = field(default_factory=datetime.now)
+    original_started_at: Optional[datetime] = None
+
+    # Integrity
+    checksum: str = ""
+
+    def compute_checksum(self) -> str:
+        """Compute checksum for integrity verification."""
+        data = {
+            "run_id": self.run_id,
+            "segment_id": self.segment_id,
+            "current_step": self.current_step,
+            "completed_steps": self.completed_steps,
+            "step_outputs": json.dumps(self.step_outputs, sort_keys=True, default=str),
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+    def verify(self) -> bool:
+        """Verify integrity."""
+        return self.checksum == self.compute_checksum()
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "snapshot_id": self.snapshot_id,
+            "run_id": self.run_id,
+            "segment_id": self.segment_id,
+            "tenant_id": self.tenant_id,
+            "current_step": self.current_step,
+            "completed_steps": self.completed_steps,
+            "step_outputs": self.step_outputs,
+            "input_data": self.input_data,
+            "created_at": self.created_at.isoformat(),
+            "original_started_at": (
+                self.original_started_at.isoformat() if self.original_started_at else None
+            ),
+            "checksum": self.checksum,
+        }
 
 
 class SegmentStatus(Enum):
@@ -57,6 +140,9 @@ class SegmentResult:
     steps_total: int = 0
     current_step: Optional[str] = None
 
+    # Resume info
+    resumed_from: Optional[str] = None  # snapshot_id if resumed
+
     # Events
     events: list[WorktrailEvent] = field(default_factory=list)
 
@@ -73,6 +159,7 @@ class SegmentResult:
             "steps_completed": self.steps_completed,
             "steps_total": self.steps_total,
             "current_step": self.current_step,
+            "resumed_from": self.resumed_from,
         }
 
 
@@ -94,23 +181,47 @@ class RunConfig:
     snapshot_interval: int = 0  # 0 = disabled, N = every N steps
 
 
+@dataclass
+class _RunState:
+    """Internal state for a running segment."""
+
+    segment: SegmentDefinition
+    runtime: RuntimeContext
+    input_data: dict[str, Any]
+    config: RunConfig
+    result: SegmentResult
+    emitter: EventEmitter
+
+    # Execution state (updated during run)
+    step_outputs: dict[str, Any] = field(default_factory=dict)
+    current_step: Optional[str] = None
+    completed_steps: list[str] = field(default_factory=list)
+
+
 class SegmentRunner:
     """
     Unified segment execution entry point.
 
     Used by KorpOS to execute segments as sub-workflows.
+    Supports pause/resume for long-running workflows.
     """
 
     def __init__(
         self,
         catalog: Optional[StepCatalog] = None,
         event_stream: Optional[EventStream] = None,
+        snapshot_store: Optional[SegmentSnapshotStore] = None,
     ) -> None:
         self.catalog = catalog or StepCatalog.instance()
         self.event_stream = event_stream
+        self._snapshot_store = snapshot_store
 
         self._running: dict[str, asyncio.Task] = {}
         self._cancelled: set[str] = set()
+        self._paused: set[str] = set()
+        self._run_state: dict[str, _RunState] = {}
+        self._snapshots: dict[str, SegmentSnapshot] = {}
+        self._segments: dict[str, SegmentDefinition] = {}  # Cache for resume
 
     async def run(
         self,
@@ -135,6 +246,9 @@ class SegmentRunner:
         config = config or RunConfig()
         run_id = runtime.run_id
 
+        # Cache segment for resume
+        self._segments[segment.segment_id] = segment
+
         # Create emitter
         emitter = EventEmitter(runtime)
 
@@ -147,6 +261,18 @@ class SegmentRunner:
             steps_total=len(segment.steps),
         )
 
+        # Track run state for pause/resume
+        run_state = _RunState(
+            segment=segment,
+            runtime=runtime,
+            input_data=input_data,
+            config=config,
+            result=result,
+            emitter=emitter,
+            current_step=segment.entrypoint,
+        )
+        self._run_state[run_id] = run_state
+
         # Emit start event
         emitter.segment_started({"input": input_data})
 
@@ -154,7 +280,7 @@ class SegmentRunner:
             # Create task
             task = asyncio.create_task(
                 self._execute_segment(
-                    segment, runtime, input_data, emitter, result, config
+                    segment, runtime, input_data, emitter, result, config, run_state
                 )
             )
             self._running[run_id] = task
@@ -205,6 +331,9 @@ class SegmentRunner:
         finally:
             self._running.pop(run_id, None)
             self._cancelled.discard(run_id)
+            # Keep run_state if paused (for snapshot creation)
+            if run_id not in self._paused:
+                self._run_state.pop(run_id, None)
 
         return result
 
@@ -224,6 +353,8 @@ class SegmentRunner:
 
     async def get_status(self, run_id: str) -> Optional[SegmentStatus]:
         """Get status of a run."""
+        if run_id in self._paused:
+            return SegmentStatus.PAUSED
         if run_id in self._running:
             if run_id in self._cancelled:
                 return SegmentStatus.CANCELLED
@@ -234,9 +365,233 @@ class SegmentRunner:
         """Check if run is active."""
         return run_id in self._running
 
+    def is_paused(self, run_id: str) -> bool:
+        """Check if run is paused."""
+        return run_id in self._paused
+
     def list_running(self) -> list[str]:
         """List all running segment run IDs."""
         return list(self._running.keys())
+
+    def list_paused(self) -> list[str]:
+        """List all paused segment run IDs."""
+        return list(self._paused)
+
+    async def pause(self, run_id: str) -> Optional[str]:
+        """
+        Pause a running segment and create a snapshot.
+
+        Args:
+            run_id: The run ID to pause
+
+        Returns:
+            snapshot_id if paused successfully, None if run not found
+        """
+        if run_id not in self._running:
+            return None
+
+        run_state = self._run_state.get(run_id)
+        if not run_state:
+            return None
+
+        # Mark as paused (execution loop will check this)
+        self._paused.add(run_id)
+
+        # Cancel the task to stop execution
+        task = self._running.get(run_id)
+        if task:
+            task.cancel()
+
+        # Wait briefly for task to process cancellation
+        try:
+            await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            pass
+
+        # Create snapshot from current state
+        snapshot = SegmentSnapshot(
+            snapshot_id=_generate_id("snap"),
+            run_id=run_id,
+            segment_id=run_state.segment.segment_id,
+            tenant_id=run_state.runtime.tenant_id,
+            current_step=run_state.current_step,
+            completed_steps=list(run_state.completed_steps),
+            step_outputs=dict(run_state.step_outputs),
+            input_data=run_state.input_data,
+            created_at=datetime.now(),
+            original_started_at=run_state.result.started_at,
+        )
+        snapshot.checksum = snapshot.compute_checksum()
+
+        # Save snapshot
+        self._snapshots[snapshot.snapshot_id] = snapshot
+        if self._snapshot_store:
+            await self._snapshot_store.save(snapshot)
+
+        # Update result status
+        run_state.result.status = SegmentStatus.PAUSED
+        run_state.result.completed_at = datetime.now()
+
+        # Clean up
+        self._running.pop(run_id, None)
+        self._run_state.pop(run_id, None)
+
+        return snapshot.snapshot_id
+
+    async def resume(
+        self,
+        snapshot_id: str,
+        runtime: RuntimeContext,
+        *,
+        config: Optional[RunConfig] = None,
+    ) -> SegmentResult:
+        """
+        Resume a segment from a snapshot.
+
+        Args:
+            snapshot_id: ID of the snapshot to resume from
+            runtime: Runtime context (can be different from original)
+            config: Optional new run configuration
+
+        Returns:
+            SegmentResult with resumed execution
+
+        Raises:
+            CanvasError: If snapshot not found or invalid
+        """
+        # Load snapshot
+        snapshot = self._snapshots.get(snapshot_id)
+        if not snapshot and self._snapshot_store:
+            snapshot = await self._snapshot_store.load(snapshot_id)
+
+        if not snapshot:
+            raise CanvasError(f"Snapshot {snapshot_id} not found")
+
+        # Verify integrity
+        if not snapshot.verify():
+            raise CanvasError(f"Snapshot {snapshot_id} failed integrity check")
+
+        # Load segment definition
+        segment = self._segments.get(snapshot.segment_id)
+        if not segment:
+            raise CanvasError(
+                f"Segment {snapshot.segment_id} not found. "
+                "Segment must be cached from a previous run."
+            )
+
+        # Clean up paused state for old run_id
+        self._paused.discard(snapshot.run_id)
+
+        # Use provided config or create default
+        config = config or RunConfig()
+        run_id = runtime.run_id
+
+        # Create emitter
+        emitter = EventEmitter(runtime)
+
+        # Initialize result (resumed)
+        result = SegmentResult(
+            run_id=run_id,
+            segment_id=segment.segment_id,
+            status=SegmentStatus.RUNNING,
+            started_at=datetime.now(),
+            steps_total=len(segment.steps),
+            steps_completed=len(snapshot.completed_steps),
+            current_step=snapshot.current_step,
+            resumed_from=snapshot_id,
+        )
+
+        # Track run state
+        run_state = _RunState(
+            segment=segment,
+            runtime=runtime,
+            input_data=snapshot.input_data,
+            config=config,
+            result=result,
+            emitter=emitter,
+            step_outputs=dict(snapshot.step_outputs),
+            current_step=snapshot.current_step,
+            completed_steps=list(snapshot.completed_steps),
+        )
+        self._run_state[run_id] = run_state
+
+        # Emit resume event
+        emitter.segment_started({
+            "input": snapshot.input_data,
+            "resumed_from": snapshot_id,
+            "resumed_step": snapshot.current_step,
+        })
+
+        try:
+            # Create task
+            task = asyncio.create_task(
+                self._execute_segment_from_state(
+                    segment, runtime, emitter, result, config, run_state
+                )
+            )
+            self._running[run_id] = task
+
+            # Apply timeout
+            if config.timeout:
+                output = await asyncio.wait_for(task, config.timeout.total_seconds())
+            else:
+                output = await task
+
+            # Success
+            result.status = SegmentStatus.COMPLETED
+            result.output = output
+            result.completed_at = datetime.now()
+            result.duration_ms = int(
+                (result.completed_at - result.started_at).total_seconds() * 1000
+            )
+
+            emitter.segment_completed(result.duration_ms, {"output": output})
+
+        except asyncio.CancelledError:
+            # Check if this was a pause
+            if run_id in self._paused:
+                result.status = SegmentStatus.PAUSED
+            else:
+                result.status = SegmentStatus.CANCELLED
+            result.completed_at = datetime.now()
+
+            if result.status == SegmentStatus.CANCELLED and config.on_cancel:
+                await config.on_cancel(result)
+
+        except asyncio.TimeoutError:
+            result.status = SegmentStatus.TIMEOUT
+            result.completed_at = datetime.now()
+            result.error = ErrorInfo(
+                error_type="TimeoutError",
+                error_message=f"Segment timed out after {config.timeout}",
+                recoverable=True,
+            )
+            emitter.segment_failed(result.error)
+
+        except Exception as e:
+            result.status = SegmentStatus.FAILED
+            result.completed_at = datetime.now()
+            result.error = ErrorInfo(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                recoverable=False,
+            )
+            emitter.segment_failed(result.error)
+
+        finally:
+            self._running.pop(run_id, None)
+            self._cancelled.discard(run_id)
+            if run_id not in self._paused:
+                self._run_state.pop(run_id, None)
+
+        return result
+
+    async def get_snapshot(self, snapshot_id: str) -> Optional[SegmentSnapshot]:
+        """Get a snapshot by ID."""
+        snapshot = self._snapshots.get(snapshot_id)
+        if not snapshot and self._snapshot_store:
+            snapshot = await self._snapshot_store.load(snapshot_id)
+        return snapshot
 
     async def _execute_segment(
         self,
@@ -246,24 +601,96 @@ class SegmentRunner:
         emitter: EventEmitter,
         result: SegmentResult,
         config: RunConfig,
+        run_state: _RunState,
     ) -> dict:
-        """Execute segment steps."""
-
+        """Execute segment steps from the beginning."""
         # Build execution graph
         step_map = {s.step_id: s for s in segment.steps}
         edge_map = self._build_edge_map(segment.edges)
 
-        # State
-        step_outputs: dict[str, Any] = {}
-        current_step_id: Optional[str] = segment.entrypoint
+        # Execute from entrypoint
+        return await self._execute_steps(
+            segment=segment,
+            runtime=runtime,
+            input_data=input_data,
+            emitter=emitter,
+            result=result,
+            config=config,
+            run_state=run_state,
+            step_map=step_map,
+            edge_map=edge_map,
+            start_step=segment.entrypoint,
+            step_outputs={},
+            completed_steps=[],
+        )
+
+    async def _execute_segment_from_state(
+        self,
+        segment: SegmentDefinition,
+        runtime: RuntimeContext,
+        emitter: EventEmitter,
+        result: SegmentResult,
+        config: RunConfig,
+        run_state: _RunState,
+    ) -> dict:
+        """Execute segment steps from a restored state (resume)."""
+        # Build execution graph
+        step_map = {s.step_id: s for s in segment.steps}
+        edge_map = self._build_edge_map(segment.edges)
+
+        # Execute from current step with restored state
+        return await self._execute_steps(
+            segment=segment,
+            runtime=runtime,
+            input_data=run_state.input_data,
+            emitter=emitter,
+            result=result,
+            config=config,
+            run_state=run_state,
+            step_map=step_map,
+            edge_map=edge_map,
+            start_step=run_state.current_step,
+            step_outputs=run_state.step_outputs,
+            completed_steps=run_state.completed_steps,
+        )
+
+    async def _execute_steps(
+        self,
+        segment: SegmentDefinition,
+        runtime: RuntimeContext,
+        input_data: dict,
+        emitter: EventEmitter,
+        result: SegmentResult,
+        config: RunConfig,
+        run_state: _RunState,
+        step_map: dict,
+        edge_map: dict,
+        start_step: Optional[str],
+        step_outputs: dict[str, Any],
+        completed_steps: list[str],
+    ) -> dict:
+        """Core step execution loop."""
+        current_step_id = start_step
 
         while current_step_id:
-            # Check cancellation
-            if runtime.run_id in self._cancelled:
+            # Check cancellation or pause
+            if runtime.run_id in self._cancelled or runtime.run_id in self._paused:
+                # Update run_state before raising
+                run_state.current_step = current_step_id
+                run_state.step_outputs = step_outputs
+                run_state.completed_steps = completed_steps
                 raise asyncio.CancelledError()
 
             step_def = step_map[current_step_id]
             result.current_step = current_step_id
+            run_state.current_step = current_step_id
+
+            # Skip if already completed (for resume)
+            if current_step_id in completed_steps:
+                # Get next step based on saved output
+                output = step_outputs.get(current_step_id, {})
+                current_step_id = self._get_next_step(current_step_id, edge_map, output)
+                continue
 
             # Create step context
             step_ctx = runtime.child_context(current_step_id)
@@ -306,7 +733,12 @@ class SegmentRunner:
                     (datetime.now() - step_start).total_seconds() * 1000
                 )
                 step_outputs[current_step_id] = output
+                completed_steps.append(current_step_id)
                 result.steps_completed += 1
+
+                # Update run_state for pause/resume
+                run_state.step_outputs = step_outputs
+                run_state.completed_steps = completed_steps
 
                 emitter.step_completed(
                     current_step_id, step_def.type, step_duration, {"output": output}
@@ -330,6 +762,7 @@ class SegmentRunner:
                 edge_map,
                 output,
             )
+            run_state.current_step = current_step_id
 
         # Return final output (from last executed step)
         if step_outputs:
@@ -436,21 +869,38 @@ class SegmentRunner:
         Evaluate a simple condition expression.
 
         Supports basic expressions like:
-        - "output.status == 'success'"
-        - "output.score > 0.5"
-        - "true" / "false"
+        - "true" / "false" - Boolean literals
+        - "<key>" - Check if key exists in output dict with truthy value
+
+        Raises:
+            InvalidConditionError: If condition cannot be evaluated
         """
+        # Validate condition is not empty
+        if not condition or not condition.strip():
+            raise InvalidConditionError(condition, "Condition cannot be empty")
+
+        condition = condition.strip()
+
         # Simple boolean conditions
         if condition.lower() == "true":
             return True
         if condition.lower() == "false":
             return False
 
-        # For more complex conditions, we would need a proper expression evaluator
-        # For now, support checking output port presence
+        # Check output port presence (condition is a key name)
         if isinstance(output, dict):
             # Check if the output has the condition as a key with truthy value
             if condition in output:
                 return bool(output[condition])
+            # Key not found in output
+            raise InvalidConditionError(
+                condition,
+                f"Key '{condition}' not found in output. Available keys: {list(output.keys())}"
+            )
 
-        return True  # Default to true if can't evaluate
+        # Cannot evaluate condition against non-dict output
+        raise InvalidConditionError(
+            condition,
+            f"Cannot evaluate condition against output of type {type(output).__name__}. "
+            "Expected dict or use 'true'/'false' literal."
+        )

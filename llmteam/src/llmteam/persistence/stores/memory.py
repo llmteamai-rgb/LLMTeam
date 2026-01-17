@@ -2,6 +2,7 @@
 In-Memory Snapshot Store.
 """
 
+from collections import OrderedDict
 from typing import Dict, List, Optional
 
 from .base import SnapshotStore
@@ -9,10 +10,19 @@ from ..models import PipelineSnapshot
 
 
 class MemorySnapshotStore(SnapshotStore):
-    """In-memory implementation of snapshot store."""
+    """
+    In-memory implementation of snapshot store.
 
-    def __init__(self) -> None:
-        self._snapshots: Dict[str, PipelineSnapshot] = {}
+    Args:
+        max_snapshots: Maximum number of snapshots to keep (default: 10,000).
+                      Oldest snapshots are evicted when limit is reached.
+    """
+
+    DEFAULT_MAX_SNAPSHOTS = 10_000
+
+    def __init__(self, max_snapshots: int = DEFAULT_MAX_SNAPSHOTS) -> None:
+        self._max_snapshots = max_snapshots
+        self._snapshots: OrderedDict[str, PipelineSnapshot] = OrderedDict()
         self._by_run: Dict[str, List[str]] = {}  # run_id -> [snapshot_ids]
         self._by_pipeline: Dict[str, List[str]] = {}  # pipeline_id -> [snapshot_ids]
 
@@ -20,6 +30,21 @@ class MemorySnapshotStore(SnapshotStore):
         """Save snapshot."""
         # Compute checksum before saving
         snapshot.checksum = snapshot.compute_checksum()
+
+        # Evict oldest if at capacity
+        while len(self._snapshots) >= self._max_snapshots:
+            oldest_id, oldest_snapshot = self._snapshots.popitem(last=False)
+            # Clean up indices for evicted snapshot
+            if oldest_snapshot.run_id in self._by_run:
+                try:
+                    self._by_run[oldest_snapshot.run_id].remove(oldest_id)
+                except ValueError:
+                    pass
+            if oldest_snapshot.pipeline_id in self._by_pipeline:
+                try:
+                    self._by_pipeline[oldest_snapshot.pipeline_id].remove(oldest_id)
+                except ValueError:
+                    pass
 
         # Store snapshot
         self._snapshots[snapshot.snapshot_id] = snapshot

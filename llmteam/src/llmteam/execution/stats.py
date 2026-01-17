@@ -5,7 +5,18 @@ Tracks execution metrics and results.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
+
+
+class TaskResultDict(TypedDict):
+    """Dictionary representation of TaskResult."""
+    task_id: str
+    agent_name: str
+    success: bool
+    result: Any
+    error: Optional[str]
+    duration_ms: int
+    retries: int
 
 
 @dataclass
@@ -30,6 +41,30 @@ class TaskResult:
     error: Optional[str] = None
     duration_ms: int = 0
     retries: int = 0
+
+    def to_dict(self) -> TaskResultDict:
+        """Convert to dictionary."""
+        return {
+            "task_id": self.task_id,
+            "agent_name": self.agent_name,
+            "success": self.success,
+            "result": self.result,
+            "error": self.error,
+            "duration_ms": self.duration_ms,
+            "retries": self.retries,
+        }
+
+
+class ExecutionStatsDict(TypedDict):
+    """Dictionary representation of ExecutionStats."""
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    total_duration_ms: int
+    avg_duration_ms: float
+    current_queue_size: int
+    current_running: int
+    backpressure_events: int
 
 
 @dataclass
@@ -64,3 +99,16 @@ class ExecutionStats:
         """Update average duration based on completed tasks."""
         if self.completed_tasks > 0:
             self.avg_duration_ms = self.total_duration_ms / self.completed_tasks
+
+    def to_dict(self) -> ExecutionStatsDict:
+        """Convert to dictionary."""
+        return {
+            "total_tasks": self.total_tasks,
+            "completed_tasks": self.completed_tasks,
+            "failed_tasks": self.failed_tasks,
+            "total_duration_ms": self.total_duration_ms,
+            "avg_duration_ms": self.avg_duration_ms,
+            "current_queue_size": self.current_queue_size,
+            "current_running": self.current_running,
+            "backpressure_events": self.backpressure_events,
+        }

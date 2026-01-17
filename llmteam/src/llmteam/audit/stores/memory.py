@@ -4,8 +4,9 @@ In-memory audit store implementation.
 This store is useful for testing. Data is lost when the process exits.
 """
 
+from collections import deque
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Deque, Dict, List, Optional
 
 from llmteam.audit.models import AuditRecord, AuditQuery
 
@@ -13,25 +14,32 @@ from llmteam.audit.models import AuditRecord, AuditQuery
 class MemoryAuditStore:
     """
     In-memory implementation of AuditStore.
-    
-    Stores audit records in a list. Useful for:
+
+    Stores audit records in a bounded deque. Useful for:
     - Unit testing
     - Development and prototyping
     - Temporary audit needs
-    
+
     Note: This store does NOT provide the immutability guarantees
     required for compliance. Use PostgresAuditStore for production.
-    
+
+    Args:
+        max_records: Maximum number of records to keep (default: 100,000).
+                    Oldest records are evicted when limit is reached.
+
     Example:
-        store = MemoryAuditStore()
+        store = MemoryAuditStore(max_records=10_000)
         audit = AuditTrail(store)
-        
+
         await audit.log(AuditEventType.PIPELINE_STARTED, ...)
     """
-    
-    def __init__(self):
-        """Initialize empty store."""
-        self._records: List[AuditRecord] = []
+
+    DEFAULT_MAX_RECORDS = 100_000
+
+    def __init__(self, max_records: int = DEFAULT_MAX_RECORDS):
+        """Initialize empty store with bounded capacity."""
+        self._max_records = max_records
+        self._records: Deque[AuditRecord] = deque(maxlen=max_records)
         self._sequence_by_tenant: Dict[str, int] = {}
     
     async def append(self, record: AuditRecord) -> None:

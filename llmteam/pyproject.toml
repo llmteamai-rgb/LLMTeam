@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "llmteam"
+name = "llmteam-ai"
 version = "2.0.0"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
-    { name = "llmteam contributors" }
+    { name = "KirilinVS", email = "LLMTeamai@gmail.com" }
 ]
 keywords = [
     "llm",
@@ -24,7 +24,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -37,7 +37,11 @@ classifiers = [
 
 dependencies = [
     "aiohttp>=3.9.0",
+    "click>=8.1.0",
 ]
+
+[project.scripts]
+llmteam = "llmteam.cli.main:main"
 
 [project.optional-dependencies]
 postgres = [
@@ -46,9 +50,25 @@ postgres = [
 redis = [
     "redis>=5.0.0",
 ]
+api = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+]
+validation = [
+    "jsonschema>=4.20.0",
+]
+logging = [
+    "structlog>=24.1.0",
+]
 all = [
     "asyncpg>=0.28.0",
     "redis>=5.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "jsonschema>=4.20.0",
+    "structlog>=24.1.0",
 ]
 dev = [
     "pytest>=7.4.0",
@@ -62,10 +82,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/llmteam/llmteam"
-Documentation = "https://llmteam.readthedocs.io"
-Repository = "https://github.com/llmteam/llmteam"
-Changelog = "https://github.com/llmteam/llmteam/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/KirilinVS/llmteam"
+Documentation = "https://github.com/KirilinVS/llmteam#readme"
+Repository = "https://github.com/KirilinVS/llmteam"
+Changelog = "https://github.com/KirilinVS/llmteam/blob/main/CHANGELOG.md"
+Issues = "https://github.com/KirilinVS/llmteam/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llmteam"]

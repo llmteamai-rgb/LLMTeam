@@ -2,7 +2,8 @@
 Event Store for persisting Worktrail events.
 """
 
-from typing import List, Optional, Protocol
+from collections import deque
+from typing import Deque, List, Optional, Protocol
 from datetime import datetime
 
 from llmteam.events.models import WorktrailEvent, EventType
@@ -31,10 +32,19 @@ class EventStore(Protocol):
 
 
 class MemoryEventStore:
-    """In-memory event store for testing and development."""
+    """
+    In-memory event store for testing and development.
 
-    def __init__(self) -> None:
-        self._events: List[WorktrailEvent] = []
+    Args:
+        max_events: Maximum number of events to keep (default: 100,000).
+                   Oldest events are evicted when limit is reached.
+    """
+
+    DEFAULT_MAX_EVENTS = 100_000
+
+    def __init__(self, max_events: int = DEFAULT_MAX_EVENTS) -> None:
+        self._max_events = max_events
+        self._events: Deque[WorktrailEvent] = deque(maxlen=max_events)
 
     async def append(self, event: WorktrailEvent) -> None:
         """Append event to store."""

@@ -169,6 +169,7 @@ from llmteam.runtime import (
     RuntimeContext,
     StepContext,
     RuntimeContextManager,
+    RuntimeContextFactory,
     current_runtime,
     get_current_runtime,
     ResourceNotFoundError,
@@ -208,6 +209,8 @@ from llmteam.canvas import (
     SegmentResult,
     RunConfig,
     SegmentRunner,
+    SegmentSnapshot,
+    SegmentSnapshotStore,
     # Handlers
     HumanTaskHandler,
     create_human_task_handler,
@@ -216,6 +219,61 @@ from llmteam.canvas import (
     SegmentValidationError,
     StepTypeNotFoundError,
     InvalidStepConfigError,
+    InvalidConditionError,
+)
+
+# v2.0.0: Patterns
+from llmteam.patterns import (
+    CriticVerdict,
+    CriticLoopConfig,
+    CriticFeedback,
+    IterationRecord,
+    CriticLoopResult,
+    CriticLoop,
+)
+
+# v2.0.0: New naming (LLMTeam) + Compatibility aliases
+from llmteam.compat import (
+    LLMTeam,
+    TeamOrchestrator,
+    Pipeline,  # Deprecated, use LLMTeam
+)
+
+# v2.0.0: Three-Level Ports (RFC #7)
+from llmteam.ports import (
+    PortLevel,
+    PortDirection,
+    PortDataType,
+    TypedPort,
+    StepPorts,
+    workflow_input,
+    workflow_output,
+    agent_input,
+    agent_output,
+    human_input,
+    human_output,
+    llm_agent_ports,
+    human_task_ports,
+    transform_ports,
+    http_action_ports,
+)
+
+# v2.0.0: Observability
+from llmteam.observability import (
+    configure_logging,
+    get_logger,
+    LogConfig,
+    LogFormat,
+)
+
+# v2.0.0: Canvas Validation
+from llmteam.canvas.validation import (
+    ValidationSeverity,
+    ValidationMessage,
+    ValidationResult,
+    SegmentValidator,
+    validate_segment,
+    validate_segment_dict,
 )
 
 __all__ = [
@@ -346,6 +404,7 @@ __all__ = [
     "RuntimeContext",
     "StepContext",
     "RuntimeContextManager",
+    "RuntimeContextFactory",
     "current_runtime",
     "get_current_runtime",
     "ResourceNotFoundError",
@@ -378,10 +437,57 @@ __all__ = [
     "SegmentResult",
     "RunConfig",
     "SegmentRunner",
+    "SegmentSnapshot",
+    "SegmentSnapshotStore",
     "HumanTaskHandler",
     "create_human_task_handler",
     "CanvasError",
     "SegmentValidationError",
     "StepTypeNotFoundError",
     "InvalidStepConfigError",
+    "InvalidConditionError",
+
+    # Patterns (v2.0.0)
+    "CriticVerdict",
+    "CriticLoopConfig",
+    "CriticFeedback",
+    "IterationRecord",
+    "CriticLoopResult",
+    "CriticLoop",
+
+    # Team (v2.0.0 naming)
+    "LLMTeam",
+    "TeamOrchestrator",
+    "Pipeline",  # Deprecated
+
+    # Three-Level Ports (v2.0.0)
+    "PortLevel",
+    "PortDirection",
+    "PortDataType",
+    "TypedPort",
+    "StepPorts",
+    "workflow_input",
+    "workflow_output",
+    "agent_input",
+    "agent_output",
+    "human_input",
+    "human_output",
+    "llm_agent_ports",
+    "human_task_ports",
+    "transform_ports",
+    "http_action_ports",
+
+    # Observability (v2.0.0)
+    "configure_logging",
+    "get_logger",
+    "LogConfig",
+    "LogFormat",
+
+    # Validation (v2.0.0)
+    "ValidationSeverity",
+    "ValidationMessage",
+    "ValidationResult",
+    "SegmentValidator",
+    "validate_segment",
+    "validate_segment_dict",
 ]
