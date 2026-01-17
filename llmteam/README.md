@@ -2,7 +2,7 @@
 
 Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
 
-**Current Version: 1.9.0 (Workflow Runtime)**
+**Current Version: 2.0.0 (Canvas Integration)**
 
 ## Installation
 
@@ -256,6 +256,188 @@ snapshot = await manager.create_snapshot(pipeline_id, agents_state, metadata)
 result = await manager.restore_snapshot(snapshot.snapshot_id)
 ```
 
+### v2.0.0 — Canvas Integration
+
+#### Runtime Context
+
+Inject runtime resources (stores, clients, secrets, LLMs) into step execution.
+
+```python
+from llmteam.runtime import RuntimeContext, RuntimeContextManager, StepContext
+
+# Create runtime manager with registries
+manager = RuntimeContextManager()
+manager.register_store("redis", redis_store)
+manager.register_client("http", http_client)
+manager.register_secrets_provider(vault_provider)
+
+# Create runtime for workflow instance
+runtime = manager.create_runtime(
+    tenant_id="acme",
+    instance_id="workflow_123",
+)
+
+# Create step context for step execution
+step_ctx = runtime.child_context("process_data")
+
+# Access resources in step handler
+store = step_ctx.get_store("redis")
+secret = step_ctx.get_secret("api_key")
+llm = step_ctx.get_llm("openai")
+```
+
+#### Worktrail Events
+
+Emit events for Canvas UI integration.
+
+```python
+from llmteam.events import EventEmitter, EventType, MemoryEventStore
+
+store = MemoryEventStore()
+emitter = EventEmitter(store)
+
+# Emit step events
+await emitter.emit_step_started(run_id, step_id, input_data)
+await emitter.emit_step_completed(run_id, step_id, output_data, duration_ms)
+await emitter.emit_step_failed(run_id, step_id, error_info)
+
+# Query events
+events = await store.query(run_id=run_id, event_types=[EventType.STEP_COMPLETED])
+```
+
+#### Segment Definition (JSON Contract)
+
+Define workflow segments with steps and edges.
+
+```python
+from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, PortDefinition
+
+segment = SegmentDefinition(
+    segment_id="data_pipeline",
+    name="Data Processing Pipeline",
+    version="1.0.0",
+    steps=[
+        StepDefinition(
+            step_id="fetch",
+            step_type="http_action",
+            config={"url": "https://api.example.com/data", "method": "GET"},
+            outputs=[PortDefinition(port_id="output", data_type="json")],
+        ),
+        StepDefinition(
+            step_id="transform",
+            step_type="transform",
+            config={"expression": "data.items"},
+            inputs=[PortDefinition(port_id="input", data_type="json")],
+            outputs=[PortDefinition(port_id="output", data_type="json")],
+        ),
+        StepDefinition(
+            step_id="analyze",
+            step_type="llm_agent",
+            config={"model": "gpt-4", "system_prompt": "Analyze the data"},
+            inputs=[PortDefinition(port_id="input", data_type="json")],
+        ),
+    ],
+    edges=[
+        EdgeDefinition(source_step="fetch", source_port="output", target_step="transform", target_port="input"),
+        EdgeDefinition(source_step="transform", source_port="output", target_step="analyze", target_port="input"),
+    ],
+)
+
+# Validate and serialize
+segment.validate()
+json_data = segment.to_json()
+```
+
+#### Step Catalog
+
+Registry of available step types with metadata.
+
+```python
+from llmteam.canvas import StepCatalog, StepCategory
+
+catalog = StepCatalog.get_instance()
+
+# Get all step types
+all_types = catalog.list_types()
+
+# Get types by category
+ai_types = catalog.list_types(category=StepCategory.AI)
+
+# Get step metadata
+llm_agent = catalog.get_type("llm_agent")
+print(llm_agent.display_name)  # "LLM Agent"
+print(llm_agent.config_schema)  # JSON Schema for config
+
+# Validate step config
+is_valid = catalog.validate_config("llm_agent", {"model": "gpt-4"})
+```
+
+Built-in step types:
+- `llm_agent` — LLM-powered agent (AI)
+- `http_action` — HTTP API call (INTEGRATION)
+- `human_task` — Human interaction (HUMAN)
+- `condition` — Conditional branching (CONTROL)
+- `parallel_split` — Parallel execution start (CONTROL)
+- `parallel_join` — Parallel execution join (CONTROL)
+- `transform` — Data transformation (UTILITY)
+
+#### Segment Runner
+
+Execute workflow segments with handlers.
+
+```python
+from llmteam.canvas import SegmentRunner, RunConfig, HumanTaskHandler
+from llmteam.human import HumanInteractionManager
+
+# Create runner with handlers
+runner = SegmentRunner()
+
+# Register custom handler for human_task
+human_handler = HumanTaskHandler(manager=HumanInteractionManager(...))
+runner.register_handler("human_task", human_handler)
+
+# Run segment
+result = await runner.run(
+    segment=segment,
+    input_data={"query": "Process this data"},
+    runtime=runtime_context,
+    config=RunConfig(timeout_seconds=300, max_retries=3),
+)
+
+# Check result
+if result.status == SegmentStatus.COMPLETED:
+    print(result.outputs)
+elif result.status == SegmentStatus.FAILED:
+    print(result.error)
+```
+
+#### Human Task Handler
+
+Built-in handler for human_task step type.
+
+```python
+from llmteam.canvas import HumanTaskHandler, create_human_task_handler
+from llmteam.human import HumanInteractionManager, MemoryInteractionStore
+
+# Create handler with manager
+store = MemoryInteractionStore()
+manager = HumanInteractionManager(store)
+handler = create_human_task_handler(manager=manager)
+
+# Use in segment step config
+step = StepDefinition(
+    step_id="approval",
+    step_type="human_task",
+    config={
+        "task_type": "approval",  # approval, choice, input, review
+        "title": "Approve Data Processing",
+        "description": "Please review and approve the processed data",
+        "assignee_ref": "manager@company.com",
+        "timeout_hours": 24,
+    },
+)
+```
+
 ## Architecture
 
 ```
@@ -269,7 +451,15 @@ llmteam/
 ├── roles/            # Orchestration roles (v1.8.0)
 ├── actions/          # External API/webhook calls (v1.9.0)
 ├── human/            # Human-in-the-loop (v1.9.0)
-└── persistence/      # Snapshot pause/resume (v1.9.0)
+├── persistence/      # Snapshot pause/resume (v1.9.0)
+├── runtime/          # Runtime context injection (v2.0.0)
+├── events/           # Worktrail events (v2.0.0)
+└── canvas/           # Canvas segment execution (v2.0.0)
+    ├── models.py     # SegmentDefinition, StepDefinition, EdgeDefinition
+    ├── catalog.py    # StepCatalog with 7 built-in types
+    ├── runner.py     # SegmentRunner execution engine
+    ├── handlers.py   # HumanTaskHandler
+    └── exceptions.py # Canvas-specific exceptions
 ```
 
 ## Key Principles
@@ -280,6 +470,7 @@ llmteam/
 2. **Vertical Visibility**: Orchestrators see only their child agents
 3. **Sealed Data**: Only the owning agent can access sealed fields
 4. **Tenant Isolation**: Complete data separation between tenants
+5. **Instance Namespacing**: Workflow instances isolated within tenant
 
 ### Reliability
 
@@ -288,9 +479,17 @@ llmteam/
 3. **Retry with Backoff**: Automatic retry for transient failures
 4. **Persistence**: Snapshot-based recovery for long-running workflows
 
+### Canvas Integration
+
+1. **JSON Contract**: Segments defined as portable JSON
+2. **Step Catalog**: Extensible registry of step types
+3. **Event-Driven**: UI updates via Worktrail events
+4. **Resource Injection**: Runtime context provides stores, clients, secrets
+
 ## Version History
 
-- **v1.9.0** (Current): Workflow Runtime — External Actions, Human Interaction, Persistence
+- **v2.0.0** (Current): Canvas Integration — Runtime Context, Worktrail Events, Segment Runner
+- **v1.9.0**: Workflow Runtime — External Actions, Human Interaction, Persistence
 - **v1.8.0**: Orchestration Intelligence — Process Mining, Smart Routing, Licensing
 - **v1.7.0**: Security Foundation — Multi-tenancy, Audit, Context Security, Rate Limiting
 

@@ -40,6 +40,9 @@ TEST_MODULES = [
     "actions",      # v1.9.0
     "human",        # v1.9.0
     "persistence",  # v1.9.0
+    "runtime",      # v2.0.0
+    "events",       # v2.0.0
+    "canvas",       # v2.0.0
 ]
 
 

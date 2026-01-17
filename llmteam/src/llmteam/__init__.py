@@ -4,10 +4,10 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 1.9.0 (Workflow Runtime)
+Version: 2.0.0 (Canvas Integration)
 """
 
-__version__ = "1.9.0"
+__version__ = "2.0.0"
 __author__ = "llmteam contributors"
 
 # Core exports
@@ -126,6 +126,67 @@ from llmteam.persistence import (
     MemorySnapshotStore,
 )
 
+# v2.0.0: Runtime Context
+from llmteam.runtime import (
+    Store,
+    Client,
+    SecretsProvider,
+    LLMProvider,
+    StoreRegistry,
+    ClientRegistry,
+    LLMRegistry,
+    RuntimeContext,
+    StepContext,
+    RuntimeContextManager,
+    current_runtime,
+    get_current_runtime,
+    ResourceNotFoundError,
+    SecretAccessDeniedError,
+    RuntimeContextError,
+)
+
+# v2.0.0: Worktrail Events
+from llmteam.events import (
+    EventType,
+    EventSeverity,
+    ErrorInfo,
+    WorktrailEvent,
+    EventEmitter,
+    EventStore,
+    MemoryEventStore,
+    EventStream,
+)
+
+# v2.0.0: Canvas Integration
+from llmteam.canvas import (
+    # Models
+    PortDefinition,
+    StepPosition,
+    StepUIMetadata,
+    StepDefinition,
+    EdgeDefinition,
+    SegmentParams,
+    SegmentDefinition,
+    # Catalog
+    StepCategory,
+    PortSpec,
+    StepTypeMetadata,
+    StepCatalog,
+    # Runner
+    SegmentStatus,
+    SegmentResult,
+    RunConfig,
+    SegmentRunner,
+    # Handlers
+    HumanTaskHandler,
+    create_human_task_handler,
+    # Exceptions
+    CanvasError,
+    SegmentValidationError,
+    StepTypeNotFoundError,
+    InvalidStepConfigError,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -231,4 +292,54 @@ __all__ = [
     "RestoreResult",
     "SnapshotManager",
     "MemorySnapshotStore",
+
+    # Runtime Context (v2.0.0)
+    "Store",
+    "Client",
+    "SecretsProvider",
+    "LLMProvider",
+    "StoreRegistry",
+    "ClientRegistry",
+    "LLMRegistry",
+    "RuntimeContext",
+    "StepContext",
+    "RuntimeContextManager",
+    "current_runtime",
+    "get_current_runtime",
+    "ResourceNotFoundError",
+    "SecretAccessDeniedError",
+    "RuntimeContextError",
+
+    # Worktrail Events (v2.0.0)
+    "EventType",
+    "EventSeverity",
+    "ErrorInfo",
+    "WorktrailEvent",
+    "EventEmitter",
+    "EventStore",
+    "MemoryEventStore",
+    "EventStream",
+
+    # Canvas Integration (v2.0.0)
+    "PortDefinition",
+    "StepPosition",
+    "StepUIMetadata",
+    "StepDefinition",
+    "EdgeDefinition",
+    "SegmentParams",
+    "SegmentDefinition",
+    "StepCategory",
+    "PortSpec",
+    "StepTypeMetadata",
+    "StepCatalog",
+    "SegmentStatus",
+    "SegmentResult",
+    "RunConfig",
+    "SegmentRunner",
+    "HumanTaskHandler",
+    "create_human_task_handler",
+    "CanvasError",
+    "SegmentValidationError",
+    "StepTypeNotFoundError",
+    "InvalidStepConfigError",
 ]
