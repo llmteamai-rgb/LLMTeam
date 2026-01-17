@@ -91,6 +91,10 @@ class ProcessModel:
     precision: float = 1.0
 
 
+from llmteam.licensing import professional_only
+
+
+@professional_only
 class ProcessMiningEngine:
     """
     Engine for process mining and workflow analysis.

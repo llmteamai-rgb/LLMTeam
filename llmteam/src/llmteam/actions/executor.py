@@ -16,7 +16,10 @@ if TYPE_CHECKING:
     from ..ratelimit import RateLimitedExecutor
     from ..audit import AuditTrail, AuditEventType
 
+from llmteam.licensing import professional_only
 
+
+@professional_only
 class ActionExecutor:
     """
     Executor for external actions.

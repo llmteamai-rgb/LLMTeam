@@ -51,6 +51,10 @@ class EndpointStats:
     total_retries: int = 0
 
 
+from llmteam.licensing import professional_only
+
+
+@professional_only
 class RateLimitedExecutor:
     """
     Executor that combines rate limiting and circuit breaking.

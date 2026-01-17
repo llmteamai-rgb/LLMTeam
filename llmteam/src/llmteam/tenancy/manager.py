@@ -48,6 +48,10 @@ class TenantStore(Protocol):
         ...
 
 
+from llmteam.licensing import enterprise_only
+
+
+@enterprise_only
 class TenantManager:
     """
     Manager for tenant operations.

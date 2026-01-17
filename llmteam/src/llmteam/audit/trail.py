@@ -51,6 +51,10 @@ class AuditStore(Protocol):
         ...
 
 
+from llmteam.licensing import enterprise_only
+
+
+@enterprise_only
 class AuditTrail:
     """
     Main class for audit logging.

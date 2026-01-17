@@ -34,6 +34,10 @@ def generate_uuid() -> str:
     return str(uuid.uuid4())
 
 
+from llmteam.licensing import professional_only
+
+
+@professional_only
 class HumanInteractionManager:
     """
     Manager for human interactions.

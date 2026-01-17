@@ -4,11 +4,28 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 2.0.0 (Canvas Integration)
+Version: 2.0.0 (Canvas Integration + Open Core Licensing)
+
+License Tiers:
+    - COMMUNITY (free): Basic features, memory stores
+    - PROFESSIONAL ($99/mo): Process mining, PostgreSQL, Human-in-the-loop
+    - ENTERPRISE (custom): Multi-tenant, Audit trail, SSO
+
+Quick Start:
+    import llmteam
+
+    # Check tier
+    print(llmteam.get_tier())  # LicenseTier.COMMUNITY
+
+    # Activate license
+    llmteam.activate("LLMT-PRO-XXXX-20261231")
+
+Documentation: https://docs.llmteam.ai
 """
 
 __version__ = "2.0.0"
 __author__ = "llmteam contributors"
+__email__ = "LLMTeamai@gmail.com"
 
 # Core exports
 from llmteam.tenancy import (
@@ -50,11 +67,25 @@ from llmteam.ratelimit import (
     RateLimitedExecutor,
 )
 
-# v1.8.0: Licensing
+# v1.8.0 + v2.0.0: Licensing (Open Core)
 from llmteam.licensing import (
     LicenseTier,
     LicenseLimits,
+    License,
     LicenseManager,
+    # Activation functions
+    activate,
+    get_tier,
+    has_feature,
+    print_license_status,
+    get_license_manager,
+    # Exceptions
+    LicenseValidationError,
+    LicenseExpiredError,
+    FeatureNotLicensedError,
+    # Decorators
+    professional_only,
+    enterprise_only,
 )
 
 # v1.8.0: Execution
@@ -227,10 +258,21 @@ __all__ = [
     "CircuitState",
     "RateLimitedExecutor",
 
-    # Licensing (v1.8.0)
+    # Licensing (v1.8.0 + v2.0.0 Open Core)
     "LicenseTier",
     "LicenseLimits",
+    "License",
     "LicenseManager",
+    "activate",
+    "get_tier",
+    "has_feature",
+    "print_license_status",
+    "get_license_manager",
+    "LicenseValidationError",
+    "LicenseExpiredError",
+    "FeatureNotLicensedError",
+    "professional_only",
+    "enterprise_only",
 
     # Execution (v1.8.0)
     "ExecutionMode",

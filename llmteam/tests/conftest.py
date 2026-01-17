@@ -5,11 +5,41 @@ This module provides:
 - Centralized cleanup to prevent memory leaks
 - Shared fixtures for common test objects
 - Test isolation and resource management
+- License activation for Open Core features
 """
 
 import gc
 import pytest
 from typing import AsyncGenerator, Generator
+
+
+# === License Activation for Tests ===
+# Activate Enterprise license to enable all features during testing
+
+@pytest.fixture(autouse=True, scope="function")
+def activate_test_license():
+    """
+    Activate Enterprise test license for each test.
+
+    This allows all features to be tested without license restrictions.
+    The license is reset after each test to ensure isolation.
+    """
+    from llmteam.licensing import LicenseManager, activate
+
+    # Reset singleton before test
+    LicenseManager.reset()
+
+    # Activate Enterprise test license (expires 2030)
+    try:
+        activate("LLMT-ENT-TEST1234-20301231")
+    except Exception:
+        # If activation fails, continue anyway (some tests may not need it)
+        pass
+
+    yield
+
+    # Reset after test for isolation
+    LicenseManager.reset()
 
 # Store references to all created stores for cleanup
 _test_stores: list = []
