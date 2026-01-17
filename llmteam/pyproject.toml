@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmteam-ai"
-version = "2.0.4"
+version = "2.1.0"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
 license = "Apache-2.0"
@@ -80,6 +80,26 @@ auth = [
     "PyJWT>=2.8.0",
     "cryptography>=41.0.0",
 ]
+vault = [
+    "hvac>=2.1.0",
+]
+azure-secrets = [
+    "azure-keyvault-secrets>=4.7.0",
+    "azure-identity>=1.15.0",
+]
+vertex = [
+    "google-cloud-aiplatform>=1.40.0",
+]
+litellm = [
+    "litellm>=1.20.0",
+]
+graphql = [
+    "gql[aiohttp]>=3.5.0",
+]
+grpc = [
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+]
 all = [
     "asyncpg>=0.28.0",
     "redis>=5.0.0",
@@ -97,6 +117,13 @@ all = [
     "opentelemetry-exporter-otlp>=1.20.0",
     "PyJWT>=2.8.0",
     "cryptography>=41.0.0",
+    "hvac>=2.1.0",
+    "azure-keyvault-secrets>=4.7.0",
+    "azure-identity>=1.15.0",
+    "google-cloud-aiplatform>=1.40.0",
+    "litellm>=1.20.0",
+    "gql[aiohttp]>=3.5.0",
+    "grpcio>=1.60.0",
 ]
 dev = [
     "pytest>=7.4.0",

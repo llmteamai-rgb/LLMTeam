@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-01-17
+
+### Added
+- **Extended LLM Providers** - New providers in `llmteam.providers`:
+  - `VertexAIProvider` - Google Vertex AI with Gemini models (gemini-1.5-pro, gemini-1.5-flash)
+  - `OllamaProvider` - Local LLMs via Ollama (llama2, mistral, codellama, etc.)
+  - `LiteLLMProvider` - Unified API for 100+ LLM backends
+
+- **Secrets Management** - Enterprise secrets handling in `llmteam.secrets`:
+  - `SecretsManager` - High-level secrets access with fallback support
+  - `CachingSecretsManager` - Secrets caching with TTL
+  - `EnvSecretsProvider` - Environment variables backend
+  - `VaultProvider` - HashiCorp Vault with AppRole/K8s auth
+  - `AWSSecretsProvider` - AWS Secrets Manager with assume role
+  - `AzureKeyVaultProvider` - Azure Key Vault with managed identity
+
+- **GraphQL Client** - Full-featured GraphQL support in `llmteam.clients`:
+  - `GraphQLClient` - Async client with retry and circuit breaker
+  - `GraphQLSubscription` - WebSocket subscription support
+  - Query caching with configurable TTL
+  - Error handling with structured GraphQL errors
+
+- **gRPC Client** - Enterprise gRPC support in `llmteam.clients`:
+  - `GRPCClient` - Async gRPC with channel management
+  - Secure (TLS) and insecure connections
+  - Retry with exponential backoff
+  - Health check protocol support
+  - Server streaming support
+
+- New optional dependencies: `vault`, `azure-secrets`, `vertex`, `litellm`, `graphql`, `grpc`
+
+### Changed
+- Extended `clients` module to include GraphQL and gRPC clients
+- Updated `providers` module to export all 7 providers
+
 ## [2.0.4] - 2025-01-17
 
 ### Added
@@ -176,6 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core pipeline execution framework
 - Basic agent context management
 
+[2.1.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.1...v2.0.2
