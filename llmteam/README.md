@@ -2,19 +2,7 @@
 
 Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
 
-## ⚠️ Migration from llm-pipeline-smtrk
-
-This package was renamed from `llm-pipeline-smtrk` to `llmteam` starting with v1.7.0.
-
-```python
-# Old (deprecated)
-from llm_pipeline_smtrk import create_pipeline
-
-# New (recommended)
-from llmteam import create_pipeline
-```
-
-The old import will continue to work for 2 releases with a deprecation warning.
+**Current Version: 1.9.0 (Workflow Runtime)**
 
 ## Installation
 
@@ -28,9 +16,11 @@ pip install llmteam[postgres]
 pip install llmteam[all]
 ```
 
-## Features (v1.7.0 - Security Foundation)
+## Features
 
-### 🔐 Multi-Tenant Isolation
+### v1.7.0 — Security Foundation
+
+#### Multi-Tenant Isolation
 
 Complete data isolation between tenants with configurable limits and features.
 
@@ -56,9 +46,9 @@ async with manager.context("acme"):
     pass
 ```
 
-### 📋 Audit Trail
+#### Audit Trail
 
-Compliance-ready audit logging with chain integrity verification.
+Compliance-ready audit logging with SHA-256 chain integrity verification.
 
 ```python
 from llmteam.audit import AuditTrail, AuditEventType
@@ -82,7 +72,7 @@ report = await audit.generate_report(
 )
 ```
 
-### 🛡️ Context Security
+#### Context Security
 
 Secure agent context with sealed data and access control.
 
@@ -107,16 +97,14 @@ context = SecureAgentContext(
 # Store sealed data (only agent can access)
 context.set_sealed("card_number", "4111-1111-1111-1111")
 
-# Orchestrator gets filtered view
+# Orchestrator gets filtered view (values NOT included)
 visible = context.get_visible_context(
     viewer_id="orchestrator_1",
     viewer_role="pipeline_orch",
 )
-# visible["sealed_fields"] = ["card_number", "cvv"]
-# But actual values are NOT included
 ```
 
-### ⚡ Rate Limiting
+#### Rate Limiting
 
 Protect external APIs with rate limiting and circuit breaker.
 
@@ -125,86 +113,172 @@ from llmteam.ratelimit import (
     RateLimitedExecutor,
     RateLimitConfig,
     CircuitBreakerConfig,
-    RateLimitStrategy,
 )
 from datetime import timedelta
 
-# Create executor
 executor = RateLimitedExecutor()
 
-# Register endpoint
 executor.register(
     "external_api",
-    RateLimitConfig(
-        requests_per_minute=100,
-        burst_size=10,
-        strategy=RateLimitStrategy.QUEUE,
-        retry_count=3,
-    ),
-    CircuitBreakerConfig(
-        failure_threshold=5,
-        open_timeout=timedelta(seconds=30),
-    ),
+    RateLimitConfig(requests_per_minute=100, burst_size=10),
+    CircuitBreakerConfig(failure_threshold=5, open_timeout=timedelta(seconds=30)),
 )
 
-# Execute with protection
-result = await executor.execute(
-    "external_api",
-    call_api,
-    param1="value",
+result = await executor.execute("external_api", call_api, param1="value")
+```
+
+### v1.8.0 — Orchestration Intelligence
+
+#### Hierarchical Context
+
+Context propagation with parent-child visibility rules.
+
+```python
+from llmteam.context import HierarchicalContext, ContextManager, ContextScope
+
+context_manager = ContextManager()
+
+# Create hierarchical context
+parent_ctx = HierarchicalContext(
+    context_id="pipeline_1",
+    scope=ContextScope.PIPELINE,
 )
 
-if result.success:
-    print(result.value)
-else:
-    print(f"Failed: {result.error}")
+child_ctx = context_manager.create_child(
+    parent=parent_ctx,
+    context_id="agent_1",
+    scope=ContextScope.AGENT,
+)
+
+# Child inherits from parent, parent sees child (vertical visibility)
+```
+
+#### Pipeline Orchestration
+
+Smart routing with rule-based and LLM-based strategies.
+
+```python
+from llmteam.roles import PipelineOrchestrator, RuleBasedStrategy
+
+orchestrator = PipelineOrchestrator(
+    pipeline_id="data_pipeline",
+    strategy=RuleBasedStrategy(rules=[...]),
+)
+
+# Route tasks to appropriate agents
+decision = await orchestrator.decide(task_context)
+```
+
+#### Process Mining
+
+XES export for process analysis with ProM/Celonis.
+
+```python
+from llmteam.roles import ProcessMiningEngine
+
+engine = ProcessMiningEngine()
+engine.record_event(process_id, activity, timestamp)
+
+# Export to XES format
+xes_data = engine.export_xes()
+```
+
+#### Licensing
+
+License-based feature and limit management.
+
+```python
+from llmteam.licensing import LicenseManager, LicenseTier
+
+license_manager = LicenseManager()
+await license_manager.set_license(tenant_id, LicenseTier.PROFESSIONAL)
+
+# Check limits
+can_create = await license_manager.check_limit(tenant_id, "pipelines", current=5)
+```
+
+### v1.9.0 — Workflow Runtime
+
+#### External Actions
+
+Execute external API calls and webhooks with retry and timeout handling.
+
+```python
+from llmteam.actions import ActionExecutor, ActionRegistry, ActionConfig, ActionType
+
+registry = ActionRegistry()
+registry.register(ActionConfig(
+    action_id="notify_slack",
+    action_type=ActionType.WEBHOOK,
+    endpoint="https://hooks.slack.com/...",
+    timeout=timedelta(seconds=10),
+))
+
+executor = ActionExecutor(registry)
+result = await executor.execute("notify_slack", payload={"text": "Pipeline complete"})
+```
+
+#### Human Interaction
+
+Human-in-the-loop with approval, chat, and escalation support.
+
+```python
+from llmteam.human import HumanInteractionManager, InteractionType, MemoryInteractionStore
+
+store = MemoryInteractionStore()
+manager = HumanInteractionManager(store)
+
+# Request approval
+request = await manager.request_approval(
+    pipeline_id="pipeline_1",
+    message="Approve data processing?",
+    assignee="admin@company.com",
+)
+
+# Wait for response
+response = await manager.wait_for_response(request.request_id, timeout=timedelta(hours=24))
+```
+
+#### Persistence
+
+Snapshot-based pause/resume for long-running workflows.
+
+```python
+from llmteam.persistence import SnapshotManager, MemorySnapshotStore
+
+store = MemorySnapshotStore()
+manager = SnapshotManager(store)
+
+# Save pipeline state
+snapshot = await manager.create_snapshot(pipeline_id, agents_state, metadata)
+
+# Restore later
+result = await manager.restore_snapshot(snapshot.snapshot_id)
 ```
 
 ## Architecture
 
 ```
 llmteam/
-├── tenancy/          # Multi-tenant isolation
-│   ├── models.py     # TenantConfig, TenantLimits
-│   ├── manager.py    # TenantManager
-│   ├── context.py    # TenantContext
-│   ├── isolation.py  # TenantIsolatedStore
-│   └── stores/       # Storage backends
-│
-├── audit/            # Audit trail
-│   ├── models.py     # AuditRecord, AuditQuery
-│   ├── trail.py      # AuditTrail
-│   └── stores/       # Storage backends
-│
-├── context/          # Context security
-│   ├── visibility.py # VisibilityLevel, SensitivityLevel
-│   ├── security.py   # ContextAccessPolicy, SealedData
-│   └── secure_context.py  # SecureAgentContext
-│
-└── ratelimit/        # Rate limiting
-    ├── config.py     # RateLimitConfig, CircuitBreakerConfig
-    ├── limiter.py    # RateLimiter
-    ├── circuit.py    # CircuitBreaker
-    └── executor.py   # RateLimitedExecutor
+├── tenancy/          # Multi-tenant isolation (v1.7.0)
+├── audit/            # Compliance audit trail (v1.7.0)
+├── context/          # Context security + hierarchical (v1.7.0, v1.8.0)
+├── ratelimit/        # Rate limiting + circuit breaker (v1.7.0)
+├── licensing/        # License management (v1.8.0)
+├── execution/        # Parallel pipeline execution (v1.8.0)
+├── roles/            # Orchestration roles (v1.8.0)
+├── actions/          # External API/webhook calls (v1.9.0)
+├── human/            # Human-in-the-loop (v1.9.0)
+└── persistence/      # Snapshot pause/resume (v1.9.0)
 ```
-
-## Tier Limits
-
-| Feature | FREE | STARTER | PROFESSIONAL | ENTERPRISE |
-|---------|------|---------|--------------|------------|
-| Concurrent Pipelines | 1 | 2 | 10 | Unlimited |
-| Agents per Pipeline | 5 | 10 | 50 | Unlimited |
-| Requests/Minute | 10 | 60 | 300 | Unlimited |
-| Storage | 1 GB | 10 GB | 100 GB | Unlimited |
-| Runs/Day | 100 | 1,000 | 10,000 | Unlimited |
 
 ## Key Principles
 
 ### Security
 
 1. **Horizontal Isolation**: Agents NEVER see each other's contexts
-2. **Sealed Data**: Only the owning agent can access sealed fields
-3. **Audit Everything**: All actions are logged for compliance
+2. **Vertical Visibility**: Orchestrators see only their child agents
+3. **Sealed Data**: Only the owning agent can access sealed fields
 4. **Tenant Isolation**: Complete data separation between tenants
 
 ### Reliability
@@ -212,16 +286,13 @@ llmteam/
 1. **Rate Limiting**: Protect external APIs from overload
 2. **Circuit Breaker**: Prevent cascading failures
 3. **Retry with Backoff**: Automatic retry for transient failures
+4. **Persistence**: Snapshot-based recovery for long-running workflows
 
-## Roadmap
+## Version History
 
-- **v1.7.0** (Current): Security Foundation
-- **v1.8.0**: Orchestration Intelligence (Process Mining, Smart Routing)
-- **v1.9.0**: Workflow Runtime (External Actions, Human Interaction, Persistence)
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines.
+- **v1.9.0** (Current): Workflow Runtime — External Actions, Human Interaction, Persistence
+- **v1.8.0**: Orchestration Intelligence — Process Mining, Smart Routing, Licensing
+- **v1.7.0**: Security Foundation — Multi-tenancy, Audit, Context Security, Rate Limiting
 
 ## License
 
