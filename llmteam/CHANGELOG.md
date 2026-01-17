@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2025-01-17
+
+### Added
+- **Step Handlers** - Built-in handlers for all step types
+  - `LLMAgentHandler` - LLM completion with prompt templating and variable substitution
+  - `HTTPActionHandler` - HTTP requests (GET/POST/PUT/PATCH/DELETE) with headers and timeout
+  - `TransformHandler` - Data transformation with expressions, field mappings, and functions
+  - `ConditionHandler` - Conditional branching with comparison and logical operators
+  - `ParallelSplitHandler` - Fan-out to parallel execution branches
+  - `ParallelJoinHandler` - Merge parallel results (all/any/first strategies)
+- Parallel execution support in SegmentRunner with `asyncio.gather`
+- Handler tests (62 new tests for handlers)
+
+### Changed
+- Moved handlers to `canvas/handlers/` package
+- Repository reorganization:
+  - Specs moved to `docs/specs/`
+  - Testing docs moved to `docs/testing/`
+  - Implementation summaries moved to `docs/`
+- Updated CLAUDE.md with new structure and handler documentation
+
+### Fixed
+- TransformHandler: Returns default value when expression evaluates to None
+- ConditionHandler: Logical operators (and/or) now have correct precedence
+
 ## [2.0.2] - 2025-01-17
 
 ### Fixed
@@ -89,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core pipeline execution framework
 - Basic agent context management
 
+[2.0.3]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v1.9.0...v2.0.0
