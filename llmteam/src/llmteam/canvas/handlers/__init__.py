@@ -13,6 +13,10 @@ from llmteam.canvas.handlers.parallel_handler import ParallelSplitHandler, Paral
 # Re-export HumanTaskHandler from original location for backwards compatibility
 from llmteam.canvas.handlers.human_handler import HumanTaskHandler, create_human_task_handler
 
+# v2.0.4: New handlers
+from llmteam.canvas.handlers.loop_handler import LoopHandler
+from llmteam.canvas.handlers.error_handler import ErrorHandler, TryCatchHandler
+
 __all__ = [
     "LLMAgentHandler",
     "HTTPActionHandler",
@@ -22,4 +26,8 @@ __all__ = [
     "ParallelJoinHandler",
     "HumanTaskHandler",
     "create_human_task_handler",
+    # v2.0.4
+    "LoopHandler",
+    "ErrorHandler",
+    "TryCatchHandler",
 ]

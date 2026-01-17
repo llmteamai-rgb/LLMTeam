@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2025-01-17
+
+### Added
+- **Middleware System** - Interceptors for step execution in `llmteam.middleware`:
+  - `MiddlewareStack` - Composable middleware chain
+  - `LoggingMiddleware` - Request/response logging
+  - `TimingMiddleware` - Execution timing with slow step detection
+  - `RetryMiddleware` - Configurable retry with exponential backoff
+  - `CachingMiddleware` - Result caching with TTL
+  - `RateLimitMiddleware` - Token bucket rate limiting
+  - `AuthMiddleware` - Authentication validation
+  - `ValidationMiddleware` - Input/output validation
+
+- **OpenTelemetry Tracing** - Distributed tracing in `llmteam.observability`:
+  - `TracingConfig` - Configure OTLP, Jaeger, Zipkin exporters
+  - `TracingMiddleware` - Automatic span creation for steps
+  - `SpanAttributes` - Standardized attribute names
+  - `trace_segment()`, `trace_llm_call()` - Context managers
+
+- **Authentication Module** - Enterprise auth in `llmteam.auth`:
+  - `OIDCProvider` - OpenID Connect with PKCE support
+  - `JWTValidator` - Token validation with JWKS
+  - `APIKeyValidator` - API key management with hashing
+  - `AuthenticationMiddleware`, `AuthorizationMiddleware`
+  - `RBACConfig` - Role-based access control with inheritance
+
+- **New Step Handlers** - Flow control handlers:
+  - `LoopHandler` - For-each, while, until, and range loops
+  - `ErrorHandler` - Catch, fallback, retry, compensate modes
+  - `TryCatchHandler` - Structured try-catch-finally patterns
+
+- **HTTP Client** - Resilient REST client in `llmteam.clients`:
+  - `HTTPClient` - Async HTTP with retry and circuit breaker
+  - `RetryConfig` - Configurable retry strategies
+  - `ExponentialBackoff`, `LinearBackoff`, `ConstantBackoff`
+  - `CircuitBreaker` - Fault tolerance with automatic recovery
+
+- New optional dependencies: `tracing`, `auth`
+
+### Changed
+- Updated handlers package to include LoopHandler, ErrorHandler, TryCatchHandler
+
 ## [2.0.3] - 2025-01-17
 
 ### Added
@@ -134,6 +176,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core pipeline execution framework
 - Basic agent context management
 
+[2.0.4]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.0...v2.0.1
