@@ -78,24 +78,6 @@ include = [
     "/LICENSE",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-# Limit parallel execution to prevent memory issues
-# Run with reasonable verbosity and memory cleanup
-addopts = "-v --tb=short --maxfail=5 -p no:warnings"
-# Markers for test organization
-markers = [
-    "unit: Unit tests (fast, no external dependencies)",
-    "integration: Integration tests (slower)",
-    "slow: Slow tests",
-    "memory_intensive: Tests using significant memory",
-]
-# Timeout to prevent hanging tests
-timeout = 30
-# Use asyncio_default_fixture_loop_scope for better async cleanup
-asyncio_default_fixture_loop_scope = "function"
-
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
