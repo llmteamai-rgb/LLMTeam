@@ -747,6 +747,30 @@ class SegmentRunner:
                 if config.on_step_complete:
                     await config.on_step_complete(current_step_id, output)
 
+                # Check for parallel_split - execute branches in parallel
+                if step_def.type == "parallel_split":
+                    join_step_id, join_input = await self._execute_parallel_branches(
+                        split_step_id=current_step_id,
+                        split_output=output,
+                        segment=segment,
+                        runtime=runtime,
+                        emitter=emitter,
+                        result=result,
+                        config=config,
+                        run_state=run_state,
+                        step_map=step_map,
+                        edge_map=edge_map,
+                        step_outputs=step_outputs,
+                        completed_steps=completed_steps,
+                    )
+
+                    if join_step_id:
+                        # Execute the join step with collected branch outputs
+                        step_outputs[f"_parallel_input_{join_step_id}"] = join_input
+                        current_step_id = join_step_id
+                        run_state.current_step = current_step_id
+                        continue
+
             except Exception as e:
                 error = ErrorInfo.from_exception(e, recoverable=False)
                 emitter.step_failed(current_step_id, step_def.type, error)
@@ -827,6 +851,11 @@ class SegmentRunner:
         if initial_input:
             return initial_input
 
+        # Check for parallel input (from parallel execution)
+        parallel_input_key = f"_parallel_input_{step_id}"
+        if parallel_input_key in step_outputs:
+            return step_outputs[parallel_input_key]
+
         # Find incoming edges
         inputs: dict[str, Any] = {}
         for from_step, edges in edge_map.items():
@@ -861,6 +890,228 @@ class SegmentRunner:
             else:
                 # No condition - take this edge
                 return edge.to_step
+
+        return None
+
+    async def _execute_parallel_branches(
+        self,
+        split_step_id: str,
+        split_output: dict[str, Any],
+        segment: SegmentDefinition,
+        runtime: RuntimeContext,
+        emitter: EventEmitter,
+        result: SegmentResult,
+        config: RunConfig,
+        run_state: _RunState,
+        step_map: dict,
+        edge_map: dict,
+        step_outputs: dict[str, Any],
+        completed_steps: list[str],
+    ) -> tuple[str, dict[str, Any]]:
+        """
+        Execute parallel branches from a split step.
+
+        Args:
+            split_step_id: The parallel_split step ID
+            split_output: Output from the split step (branch_1, branch_2, etc.)
+            ... other args same as _execute_steps
+
+        Returns:
+            Tuple of (join_step_id, merged_output)
+        """
+        # Find the join step
+        join_step_id = self._find_join_step(split_step_id, segment, edge_map)
+
+        if not join_step_id:
+            # No join step found, just return the split output
+            return split_step_id, split_output
+
+        # Find branch paths (steps between split and join)
+        branch_paths = self._find_branch_paths(split_step_id, join_step_id, edge_map)
+
+        # Create tasks for each branch
+        branch_tasks = []
+        branch_names = []
+
+        for branch_name, branch_data in split_output.items():
+            if not branch_name.startswith("branch_"):
+                continue
+
+            # Find the first step in this branch
+            first_step_id = self._get_branch_first_step(
+                split_step_id, branch_name, edge_map
+            )
+
+            if first_step_id and first_step_id != join_step_id:
+                # Create a task to execute this branch
+                branch_task = self._execute_branch(
+                    branch_name=branch_name,
+                    start_step_id=first_step_id,
+                    branch_input=branch_data,
+                    stop_at_step=join_step_id,
+                    segment=segment,
+                    runtime=runtime,
+                    emitter=emitter,
+                    result=result,
+                    config=config,
+                    run_state=run_state,
+                    step_map=step_map,
+                    edge_map=edge_map,
+                    step_outputs=dict(step_outputs),  # Copy for isolation
+                    completed_steps=list(completed_steps),
+                )
+                branch_tasks.append(branch_task)
+                branch_names.append(branch_name)
+
+        # Execute all branches in parallel
+        if branch_tasks:
+            branch_results = await asyncio.gather(*branch_tasks, return_exceptions=True)
+
+            # Collect results for join step
+            join_input = {}
+            for name, result_or_error in zip(branch_names, branch_results):
+                if isinstance(result_or_error, Exception):
+                    join_input[name] = {"error": str(result_or_error)}
+                else:
+                    join_input[name] = result_or_error
+
+            return join_step_id, join_input
+
+        return join_step_id, split_output
+
+    async def _execute_branch(
+        self,
+        branch_name: str,
+        start_step_id: str,
+        branch_input: Any,
+        stop_at_step: str,
+        segment: SegmentDefinition,
+        runtime: RuntimeContext,
+        emitter: EventEmitter,
+        result: SegmentResult,
+        config: RunConfig,
+        run_state: _RunState,
+        step_map: dict,
+        edge_map: dict,
+        step_outputs: dict[str, Any],
+        completed_steps: list[str],
+    ) -> Any:
+        """Execute a single branch until reaching the stop step."""
+        current_step_id = start_step_id
+
+        while current_step_id and current_step_id != stop_at_step:
+            step_def = step_map[current_step_id]
+
+            # Create step context
+            step_ctx = runtime.child_context(current_step_id)
+
+            # Get handler
+            handler = self.catalog.get_handler(step_def.type)
+            if not handler:
+                raise ValueError(f"No handler for step type: {step_def.type}")
+
+            # Get input for this step
+            if current_step_id == start_step_id:
+                step_input = branch_input if isinstance(branch_input, dict) else {"input": branch_input}
+            else:
+                step_input = self._gather_step_input(
+                    current_step_id, edge_map, step_outputs, None
+                )
+
+            # Execute step
+            emitter.step_started(current_step_id, step_def.type, {"input": step_input})
+            step_start = datetime.now()
+
+            output = await handler(step_ctx, step_def.config, step_input)
+
+            step_duration = int((datetime.now() - step_start).total_seconds() * 1000)
+            step_outputs[current_step_id] = output
+
+            emitter.step_completed(
+                current_step_id, step_def.type, step_duration, {"output": output}
+            )
+
+            # Get next step
+            current_step_id = self._get_next_step(current_step_id, edge_map, output)
+
+        # Return the last output
+        if step_outputs:
+            last_step = list(step_outputs.keys())[-1]
+            return step_outputs[last_step]
+        return branch_input
+
+    def _find_join_step(
+        self,
+        split_step_id: str,
+        segment: SegmentDefinition,
+        edge_map: dict,
+    ) -> Optional[str]:
+        """Find the parallel_join step that corresponds to a parallel_split."""
+        # BFS to find all reachable parallel_join steps
+        visited = set()
+        queue = [split_step_id]
+        step_map = {s.step_id: s for s in segment.steps}
+
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+
+            # Check if this is a join step
+            step_def = step_map.get(current)
+            if step_def and step_def.type == "parallel_join":
+                return current
+
+            # Add connected steps
+            for edge in edge_map.get(current, []):
+                if edge.to_step not in visited:
+                    queue.append(edge.to_step)
+
+        return None
+
+    def _find_branch_paths(
+        self,
+        split_step_id: str,
+        join_step_id: str,
+        edge_map: dict,
+    ) -> list[list[str]]:
+        """Find all paths from split to join."""
+        paths = []
+        edges = edge_map.get(split_step_id, [])
+
+        for edge in edges:
+            path = [edge.to_step]
+            current = edge.to_step
+
+            while current != join_step_id:
+                next_edges = edge_map.get(current, [])
+                if not next_edges:
+                    break
+                current = next_edges[0].to_step
+                if current != join_step_id:
+                    path.append(current)
+
+            paths.append(path)
+
+        return paths
+
+    def _get_branch_first_step(
+        self,
+        split_step_id: str,
+        branch_name: str,
+        edge_map: dict,
+    ) -> Optional[str]:
+        """Get the first step ID for a specific branch output port."""
+        edges = edge_map.get(split_step_id, [])
+
+        for edge in edges:
+            if edge.from_port == branch_name:
+                return edge.to_step
+
+        # Fallback: return first edge's target
+        if edges:
+            return edges[0].to_step
 
         return None
 

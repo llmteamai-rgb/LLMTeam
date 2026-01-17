@@ -240,8 +240,28 @@ class StepCatalog:
         return errors
 
     def _register_builtin_types(self) -> None:
-        """Register built-in step types."""
+        """Register built-in step types with handlers."""
         logger.debug("Registering built-in step types")
+
+        # Import handlers
+        from llmteam.canvas.handlers import (
+            LLMAgentHandler,
+            HTTPActionHandler,
+            TransformHandler,
+            ConditionHandler,
+            ParallelSplitHandler,
+            ParallelJoinHandler,
+            HumanTaskHandler,
+        )
+
+        # Create handler instances
+        llm_handler = LLMAgentHandler()
+        http_handler = HTTPActionHandler()
+        transform_handler = TransformHandler()
+        condition_handler = ConditionHandler()
+        parallel_split_handler = ParallelSplitHandler()
+        parallel_join_handler = ParallelJoinHandler()
+        human_handler = HumanTaskHandler()
 
         # LLM Agent
         self.register(
@@ -285,7 +305,8 @@ class StepCatalog:
                     PortSpec("output", "string", "LLM response"),
                     PortSpec("error", "object", "Error if failed", required=False),
                 ],
-            )
+            ),
+            handler=llm_handler,
         )
 
         # HTTP Action
@@ -333,7 +354,8 @@ class StepCatalog:
                     PortSpec("response", "object", "Response data"),
                     PortSpec("status", "integer", "HTTP status code"),
                 ],
-            )
+            ),
+            handler=http_handler,
         )
 
         # Human Task
@@ -386,7 +408,8 @@ class StepCatalog:
                     PortSpec("modified", "object", "Output if modified"),
                 ],
                 supports_parallel=False,
-            )
+            ),
+            handler=human_handler,
         )
 
         # Condition (branching)
@@ -416,7 +439,8 @@ class StepCatalog:
                     PortSpec("true", "any", "Output if true"),
                     PortSpec("false", "any", "Output if false"),
                 ],
-            )
+            ),
+            handler=condition_handler,
         )
 
         # Parallel Split
@@ -447,7 +471,8 @@ class StepCatalog:
                     PortSpec("branch_2", "any", "Branch 2 output"),
                 ],
                 supports_parallel=True,
-            )
+            ),
+            handler=parallel_split_handler,
         )
 
         # Parallel Join
@@ -477,7 +502,8 @@ class StepCatalog:
                 output_ports=[
                     PortSpec("output", "array", "Merged results"),
                 ],
-            )
+            ),
+            handler=parallel_join_handler,
         )
 
         # Data Transform
@@ -509,5 +535,6 @@ class StepCatalog:
                 output_ports=[
                     PortSpec("output", "any", "Transformed data"),
                 ],
-            )
+            ),
+            handler=transform_handler,
         )

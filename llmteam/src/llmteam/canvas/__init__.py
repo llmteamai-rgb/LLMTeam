@@ -38,6 +38,12 @@ from llmteam.canvas.runner import (
 )
 
 from llmteam.canvas.handlers import (
+    LLMAgentHandler,
+    HTTPActionHandler,
+    TransformHandler,
+    ConditionHandler,
+    ParallelSplitHandler,
+    ParallelJoinHandler,
     HumanTaskHandler,
     create_human_task_handler,
 )
@@ -81,6 +87,12 @@ __all__ = [
     "SegmentSnapshot",
     "SegmentSnapshotStore",
     # Handlers
+    "LLMAgentHandler",
+    "HTTPActionHandler",
+    "TransformHandler",
+    "ConditionHandler",
+    "ParallelSplitHandler",
+    "ParallelJoinHandler",
     "HumanTaskHandler",
     "create_human_task_handler",
     # Exceptions

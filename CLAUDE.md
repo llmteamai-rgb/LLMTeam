@@ -93,6 +93,7 @@ llmteam serve --port 8000    # Start API server
 | v2.0.0 | `runtime/` | RuntimeContext, RuntimeContextFactory, StepContext |
 | v2.0.0 | `events/` | Worktrail events for UI |
 | v2.0.0 | `canvas/` | Segment execution engine |
+| v2.0.0 | `canvas/handlers/` | Built-in step handlers (LLM, HTTP, Transform, Condition, Parallel) |
 | v2.0.0 | `observability/` | Structured logging (structlog) |
 | v2.0.0 | `cli/` | Command-line interface |
 | v2.0.0 | `api/` | REST + WebSocket API (FastAPI) |
@@ -165,10 +166,52 @@ runner = SegmentRunner()
 result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtime=runtime)
 ```
 
+### Built-in Step Handlers
+
+| Handler | Step Type | Purpose |
+|---------|-----------|---------|
+| `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating |
+| `HTTPActionHandler` | `http_action` | HTTP requests (GET/POST/PUT/PATCH/DELETE) |
+| `TransformHandler` | `transform` | Data transformation with expressions/mappings |
+| `ConditionHandler` | `condition` | Conditional branching (comparison/logical ops) |
+| `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches |
+| `ParallelJoinHandler` | `parallel_join` | Merge parallel results (all/any/first) |
+| `HumanTaskHandler` | `human_task` | Human approval/input with timeout |
+
 ## Publishing to PyPI
 
 ```bash
 cd llmteam
 python -m build
 python -m twine upload dist/* -u __token__ -p <pypi-token>
+```
+
+## Documentation
+
+```
+docs/
+├── specs/                              # Version specifications (RFC)
+│   ├── v170-security-foundation.md
+│   ├── v180-orchestration-intelligence.md
+│   ├── v190-workflow-runtime.md
+│   └── rfc-v200-canvas-integration.md
+├── testing/                            # Testing documentation
+│   └── TESTING.md                      # Main testing guide
+├── llmteam-v*-implementation-summary.md  # Implementation notes
+└── llmteam-v200-P*.md                  # Priority task lists
+```
+
+## Repository Structure
+
+```
+LLMTeam/
+├── CLAUDE.md              # This file
+├── README.md              # Project overview
+├── llmteam/               # Python package (pip install -e ".[dev]")
+│   ├── src/llmteam/       # Source code
+│   ├── tests/             # Test suite
+│   ├── Makefile           # Build commands
+│   └── run_tests.py       # Test runner
+├── docs/                  # Documentation
+└── open-core-changes/     # Open Core licensing utilities
 ```
