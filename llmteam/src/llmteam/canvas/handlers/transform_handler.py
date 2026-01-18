@@ -2,6 +2,12 @@
 Transform Handler.
 
 Transforms data using expressions or field mappings.
+
+Supports:
+- Simple field access: "field" or "field.subfield"
+- Array indexing: "items[0]"
+- JSONPath expressions: "$.store.book[*].author" (requires jsonpath-ng)
+- Built-in functions: keys(), values(), len(), json()
 """
 
 from typing import Any, Optional
@@ -13,6 +19,16 @@ from llmteam.observability import get_logger
 
 
 logger = get_logger(__name__)
+
+# Try to import jsonpath-ng for advanced path expressions
+try:
+    from jsonpath_ng import parse as jsonpath_parse
+    from jsonpath_ng.exceptions import JsonPathParserError
+    HAS_JSONPATH = True
+except ImportError:
+    HAS_JSONPATH = False
+    jsonpath_parse = None
+    JsonPathParserError = Exception
 
 
 class TransformHandler:
@@ -105,17 +121,23 @@ class TransformHandler:
         expression: str,
     ) -> Any:
         """
-        Evaluate a simple expression on data.
+        Evaluate an expression on data.
 
         Supported expressions:
         - "input" / "data" - return input as-is
         - "output" - return input as-is (for passthrough)
         - "field.subfield" - nested field access
         - "items[0]" - array indexing
+        - "$.path.to.field" - JSONPath expression (requires jsonpath-ng)
         - "keys()" - get dict keys
         - "values()" - get dict values
         - "len()" - get length
         - "json()" - serialize to JSON string
+        - "first()" - get first item from list
+        - "last()" - get last item from list
+        - "flatten()" - flatten nested lists
+        - "unique()" - get unique values from list
+        - "sort()" - sort list
 
         Args:
             data: Input data
@@ -139,6 +161,20 @@ class TransformHandler:
             return len(data) if hasattr(data, "__len__") else 0
         if expression == "json()":
             return json.dumps(data, default=str)
+        if expression == "first()":
+            return data[0] if isinstance(data, (list, tuple)) and data else None
+        if expression == "last()":
+            return data[-1] if isinstance(data, (list, tuple)) and data else None
+        if expression == "flatten()":
+            return self._flatten(data) if isinstance(data, list) else data
+        if expression == "unique()":
+            return list(dict.fromkeys(data)) if isinstance(data, list) else data
+        if expression == "sort()":
+            return sorted(data) if isinstance(data, list) else data
+
+        # JSONPath expressions (start with $ or @)
+        if expression.startswith("$") or expression.startswith("@"):
+            return self._evaluate_jsonpath(data, expression)
 
         # Field access with dot notation
         if "." in expression or "[" in expression:
@@ -155,6 +191,57 @@ class TransformHandler:
                     return data[key]
 
         return data
+
+    def _evaluate_jsonpath(
+        self,
+        data: Any,
+        expression: str,
+    ) -> Any:
+        """
+        Evaluate JSONPath expression.
+
+        Args:
+            data: Input data
+            expression: JSONPath expression (e.g., "$.store.book[*].author")
+
+        Returns:
+            Matched value(s) - single value or list for wildcards
+        """
+        if not HAS_JSONPATH:
+            logger.warning(
+                "JSONPath expression used but jsonpath-ng not installed. "
+                "Install with: pip install jsonpath-ng"
+            )
+            # Fall back to simple path extraction
+            if expression.startswith("$."):
+                return self._get_nested_value(data, expression[2:])
+            return None
+
+        try:
+            jsonpath_expr = jsonpath_parse(expression)
+            matches = jsonpath_expr.find(data)
+
+            if not matches:
+                return None
+
+            # Return single value if one match, else list
+            if len(matches) == 1:
+                return matches[0].value
+            return [m.value for m in matches]
+
+        except JsonPathParserError as e:
+            logger.error(f"Invalid JSONPath expression '{expression}': {e}")
+            return None
+
+    def _flatten(self, data: list) -> list:
+        """Flatten a nested list one level."""
+        result = []
+        for item in data:
+            if isinstance(item, list):
+                result.extend(item)
+            else:
+                result.append(item)
+        return result
 
     def _get_nested_value(
         self,

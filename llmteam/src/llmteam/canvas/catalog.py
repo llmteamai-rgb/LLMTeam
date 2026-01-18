@@ -261,7 +261,66 @@ class StepCatalog:
         condition_handler = ConditionHandler()
         parallel_split_handler = ParallelSplitHandler()
         parallel_join_handler = ParallelJoinHandler()
-        human_handler = HumanTaskHandler()
+        try:
+            human_handler = HumanTaskHandler()
+            
+            # Human Task
+            self.register(
+                StepTypeMetadata(
+                    type_id="human_task",
+                    version="1.0",
+                    display_name="Human Task",
+                    description="Request human input or approval",
+                    category=StepCategory.HUMAN,
+                    icon="user",
+                    color="#FF6B6B",
+                    config_schema={
+                        "type": "object",
+                        "properties": {
+                            "task_type": {
+                                "type": "string",
+                                "enum": ["approval", "input", "review", "choice"],
+                                "default": "approval",
+                            },
+                            "title": {
+                                "type": "string",
+                                "description": "Task title",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Task description",
+                            },
+                            "assignee_ref": {
+                                "type": "string",
+                                "description": "Reference to assignee/group",
+                            },
+                            "timeout_hours": {
+                                "type": "number",
+                                "default": 24,
+                            },
+                            "escalation_chain": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["task_type"],
+                    },
+                    input_ports=[
+                        PortSpec("data", "object", "Data for human review"),
+                    ],
+                    output_ports=[
+                        PortSpec("approved", "object", "Output if approved"),
+                        PortSpec("rejected", "object", "Output if rejected"),
+                        PortSpec("modified", "object", "Output if modified"),
+                    ],
+                    supports_parallel=False,
+                ),
+                handler=human_handler,
+            )
+        except Exception as e:
+            # Skip if license does not support human tasks
+            logger.info(f"Skipping HumanTaskHandler registration: {e}")
+
 
         # LLM Agent
         self.register(
@@ -358,59 +417,7 @@ class StepCatalog:
             handler=http_handler,
         )
 
-        # Human Task
-        self.register(
-            StepTypeMetadata(
-                type_id="human_task",
-                version="1.0",
-                display_name="Human Task",
-                description="Request human input or approval",
-                category=StepCategory.HUMAN,
-                icon="user",
-                color="#FF6B6B",
-                config_schema={
-                    "type": "object",
-                    "properties": {
-                        "task_type": {
-                            "type": "string",
-                            "enum": ["approval", "input", "review", "choice"],
-                            "default": "approval",
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Task title",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Task description",
-                        },
-                        "assignee_ref": {
-                            "type": "string",
-                            "description": "Reference to assignee/group",
-                        },
-                        "timeout_hours": {
-                            "type": "number",
-                            "default": 24,
-                        },
-                        "escalation_chain": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                    },
-                    "required": ["task_type"],
-                },
-                input_ports=[
-                    PortSpec("data", "object", "Data for human review"),
-                ],
-                output_ports=[
-                    PortSpec("approved", "object", "Output if approved"),
-                    PortSpec("rejected", "object", "Output if rejected"),
-                    PortSpec("modified", "object", "Output if modified"),
-                ],
-                supports_parallel=False,
-            ),
-            handler=human_handler,
-        )
+        # Human Task registration moved to try-except block above
 
         # Condition (branching)
         self.register(

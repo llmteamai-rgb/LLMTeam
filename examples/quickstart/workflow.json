@@ -1,51 +1,17 @@
 {
-  "version": "1.0",
-  "segment_id": "hello_world",
-  "name": "Hello World Workflow",
-  "description": "A simple workflow that asks an LLM a question",
-  "entrypoint": "ask",
-  "params": {
-    "max_retries": 3,
-    "timeout_seconds": 60,
-    "parallel_execution": false
-  },
-  "steps": [
-    {
-      "step_id": "ask",
-      "type": "llm_agent",
-      "name": "Ask Question",
-      "config": {
-        "llm_ref": "gpt4",
-        "prompt": "Answer this question briefly: {query}"
-      },
-      "ports": {
-        "input": ["input"],
-        "output": ["output"]
-      }
-    },
-    {
-      "step_id": "format",
-      "type": "transform",
-      "name": "Format Output",
-      "config": {
-        "expression": "response"
-      },
-      "ports": {
-        "input": ["input"],
-        "output": ["output"]
-      }
-    }
-  ],
-  "edges": [
-    {
-      "from": "ask",
-      "from_port": "output",
-      "to": "format",
-      "to_port": "input"
-    }
-  ],
-  "metadata": {
-    "author": "LLMTeam",
-    "created": "2026-01-17"
-  }
+    "segment_id": "quickstart",
+    "name": "My First Workflow",
+    "version": "1.0",
+    "entrypoint": "ask_ai",
+    "steps": [
+        {
+            "step_id": "ask_ai",
+            "type": "llm_agent",
+            "name": "Ask AI",
+            "config": {
+                "llm_ref": "openai",
+                "prompt": "Answer this question concisely: {question}"
+            }
+        }
+    ]
 }

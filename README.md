@@ -6,7 +6,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Current Version: v2.0.0 — Canvas Integration
+## Current Version: v2.1.0 — Extended Providers & Secrets
 
 ### New Features in v2.0.0
 

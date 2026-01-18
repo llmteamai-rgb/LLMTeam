@@ -1,7 +1,11 @@
 """
 Event Transports module.
 
-Provides WebSocket and SSE transports for streaming Worktrail events.
+Provides transports for streaming Worktrail events:
+- WebSocket: Bidirectional real-time streaming
+- SSE: Server-Sent Events for unidirectional streaming
+- Redis: Pub/Sub messaging (requires redis extra)
+- Kafka: Enterprise event streaming (requires kafka extra)
 
 Usage:
     from llmteam.events.transports import WebSocketTransport, SSETransport
@@ -15,6 +19,16 @@ Usage:
     transport = SSETransport()
     async for chunk in transport.stream(events):
         yield chunk
+
+    # Redis transport (requires: pip install llmteam-ai[redis])
+    from llmteam.events.transports import RedisTransport
+    transport = RedisTransport(url="redis://localhost:6379")
+    await transport.publish("events", event)
+
+    # Kafka transport (requires: pip install aiokafka)
+    from llmteam.events.transports import KafkaTransport
+    transport = KafkaTransport(bootstrap_servers="localhost:9092")
+    await transport.produce("events", event)
 """
 
 from llmteam.events.transports.websocket import (
@@ -29,6 +43,18 @@ from llmteam.events.transports.sse import (
     format_sse_event,
 )
 
+from llmteam.events.transports.redis import (
+    RedisTransport,
+    RedisConfig,
+    RedisConnectionState,
+)
+
+from llmteam.events.transports.kafka import (
+    KafkaTransport,
+    KafkaConfig,
+    KafkaConnectionState,
+)
+
 __all__ = [
     # WebSocket
     "WebSocketTransport",
@@ -38,4 +64,12 @@ __all__ = [
     "SSETransport",
     "SSEConfig",
     "format_sse_event",
+    # Redis
+    "RedisTransport",
+    "RedisConfig",
+    "RedisConnectionState",
+    # Kafka
+    "KafkaTransport",
+    "KafkaConfig",
+    "KafkaConnectionState",
 ]

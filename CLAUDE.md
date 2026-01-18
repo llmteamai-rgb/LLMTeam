@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 2.0.3
+- **Current version:** 2.2.0
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -100,6 +100,18 @@ llmteam serve --port 8000    # Start API server
 | v2.0.0 | `api/` | REST + WebSocket API (FastAPI) |
 | v2.0.0 | `patterns/` | Workflow patterns (fan-out, aggregation) |
 | v2.0.0 | `ports/` | Port definitions for step I/O |
+| v2.0.3 | `providers/` | LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, Ollama, LiteLLM) |
+| v2.0.3 | `testing/` | Mock providers, SegmentTestRunner, StepTestHarness |
+| v2.0.3 | `events/transports/` | WebSocketTransport, SSETransport |
+| v2.0.4 | `middleware/` | Step execution middleware (logging, timing, retry, caching, auth, rate-limit) |
+| v2.0.4 | `auth/` | OIDC, JWT, API key authentication + RBAC middleware |
+| v2.0.4 | `clients/` | HTTP, GraphQL, gRPC clients with retry and circuit breaker |
+| v2.1.0 | `secrets/` | Secrets management (Vault, AWS, Azure, env fallback) |
+| v2.2.0 | `canvas/handlers/subworkflow_handler` | Nested workflow execution |
+| v2.2.0 | `canvas/handlers/switch_handler` | Multi-way branching (switch/case) |
+| v2.2.0 | `events/transports/redis` | Redis Pub/Sub transport |
+| v2.2.0 | `events/transports/kafka` | Kafka enterprise streaming |
+| v2.2.0 | `api/health` | Health check endpoints |
 
 ### Key Patterns
 
@@ -137,9 +149,11 @@ async with manager.context(tenant_id):
 ## Creating New Modules
 
 1. Create module directory with `__init__.py` containing exports
-2. Add imports to `llmteam/__init__.py`
+2. Add imports to `llmteam/__init__.py` (or use lazy import for optional deps)
 3. Create tests in `tests/{module}/test_{module}.py`
 4. Add module to `TEST_MODULES` in `run_tests.py`
+
+Current `TEST_MODULES`: tenancy, audit, context, ratelimit, licensing, execution, roles, actions, human, persistence, runtime, events, canvas, providers, testing
 
 ### Async Code
 
@@ -193,6 +207,11 @@ result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtim
 | `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches with branch_ids |
 | `ParallelJoinHandler` | `parallel_join` | Merge parallel results (all/any/first strategies) |
 | `HumanTaskHandler` | `human_task` | Human approval/input with timeout, requires HumanInteractionManager |
+| `LoopHandler` | `loop` | For-each, while, until, and range loops (v2.0.4) |
+| `ErrorHandler` | `error` | Catch, fallback, retry, compensate modes (v2.0.4) |
+| `TryCatchHandler` | `try_catch` | Structured try-catch-finally patterns (v2.0.4) |
+| `SubworkflowHandler` | `subworkflow` | Execute nested workflow segments (v2.2.0) |
+| `SwitchHandler` | `switch` | Multi-way branching based on value matching (v2.2.0) |
 
 ### Custom Step Handlers
 
@@ -209,6 +228,112 @@ async def my_handler(step: StepDefinition, input_data: dict, context: StepContex
 runner = SegmentRunner()
 runner.register_handler("my_step_type", my_handler)
 ```
+
+## LLM Providers (v2.0.3+)
+
+Use with `pip install llmteam-ai[providers]` or individual optional deps.
+
+```python
+from llmteam.providers import OpenAIProvider, AnthropicProvider
+
+# OpenAI
+provider = OpenAIProvider(model="gpt-4o")
+response = await provider.complete("Hello!")
+
+# Anthropic
+provider = AnthropicProvider(model="claude-3-5-sonnet-20241022")
+
+# LiteLLM (100+ providers via unified API)
+from llmteam.providers import LiteLLMProvider
+provider = LiteLLMProvider(model="gpt-4")
+```
+
+Available: `OpenAIProvider`, `AnthropicProvider`, `AzureOpenAIProvider`, `BedrockProvider`, `VertexAIProvider`, `OllamaProvider`, `LiteLLMProvider`
+
+## Middleware (v2.0.4+)
+
+Composable interceptors for step execution:
+
+```python
+from llmteam.middleware import MiddlewareStack, LoggingMiddleware, RetryMiddleware, TimingMiddleware
+
+stack = MiddlewareStack()
+stack.use(LoggingMiddleware())
+stack.use(TimingMiddleware(slow_threshold_ms=1000))
+stack.use(RetryMiddleware(max_retries=3))
+```
+
+Built-in: `LoggingMiddleware`, `TimingMiddleware`, `RetryMiddleware`, `CachingMiddleware`, `RateLimitMiddleware`, `AuthMiddleware`, `ValidationMiddleware`
+
+## Secrets Management (v2.1.0)
+
+```python
+from llmteam.secrets import SecretsManager, VaultProvider, AWSSecretsProvider
+
+# HashiCorp Vault
+vault = VaultProvider(url="https://vault.example.com:8200")
+manager = SecretsManager(provider=vault)
+api_key = await manager.get_secret("openai/api-key")
+
+# AWS Secrets Manager
+aws = AWSSecretsProvider(region_name="us-east-1")
+manager = SecretsManager(provider=aws)
+```
+
+Providers: `EnvSecretsProvider`, `VaultProvider`, `AWSSecretsProvider`, `AzureKeyVaultProvider`
+
+## Clients (v2.0.4+)
+
+HTTP, GraphQL, and gRPC clients with retry and circuit breaker:
+
+```python
+from llmteam.clients import HTTPClient, GraphQLClient, GRPCClient
+
+# HTTP
+client = HTTPClient(HTTPClientConfig(base_url="https://api.example.com"))
+response = await client.get("/users")
+
+# GraphQL
+client = GraphQLClient(endpoint="https://api.example.com/graphql")
+result = await client.execute('query { users { name } }')
+
+# gRPC
+async with GRPCClient(target="localhost:50051") as client:
+    response = await client.unary_call("service.Method", "RPC", {"param": "value"})
+```
+
+## Authentication (v2.0.4+)
+
+```python
+from llmteam.auth import OIDCProvider, JWTValidator, APIKeyValidator
+
+# OIDC
+oidc = OIDCProvider(issuer="https://auth.example.com", client_id="app", client_secret="secret")
+token = await oidc.authenticate()
+
+# JWT validation
+validator = JWTValidator(issuer="https://auth.example.com")
+claims = await validator.validate(token)
+```
+
+## Testing Utilities (v2.0.3+)
+
+```python
+from llmteam.testing import MockLLMProvider, SegmentTestRunner, StepTestHarness
+
+# Mock LLM with deterministic responses
+mock_llm = MockLLMProvider(responses=["Hello!", "How can I help?"])
+
+# Run segment in isolated test mode
+runner = SegmentTestRunner()
+result = await runner.run(segment, input_data)
+
+# Unit test individual handlers
+harness = StepTestHarness()
+result = await harness.test_handler(handler, step_config, input_data)
+```
+
+Mocks: `MockLLMProvider`, `MockHTTPClient`, `MockStore`, `MockSecretsProvider`, `MockEventEmitter`
 
 ## Publishing to PyPI
 

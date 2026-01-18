@@ -17,6 +17,10 @@ from llmteam.canvas.handlers.human_handler import HumanTaskHandler, create_human
 from llmteam.canvas.handlers.loop_handler import LoopHandler
 from llmteam.canvas.handlers.error_handler import ErrorHandler, TryCatchHandler
 
+# v2.2.0: New handlers
+from llmteam.canvas.handlers.subworkflow_handler import SubworkflowHandler
+from llmteam.canvas.handlers.switch_handler import SwitchHandler
+
 __all__ = [
     "LLMAgentHandler",
     "HTTPActionHandler",
@@ -30,4 +34,7 @@ __all__ = [
     "LoopHandler",
     "ErrorHandler",
     "TryCatchHandler",
+    # v2.2.0
+    "SubworkflowHandler",
+    "SwitchHandler",
 ]

@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-01-18
+
+### Added
+- **New Step Handlers**:
+  - `SubworkflowHandler` - Execute nested workflow segments with input/output mapping
+  - `SwitchHandler` - Multi-way branching based on value matching (like switch/case)
+
+- **Event Transports**:
+  - `RedisTransport` - Redis Pub/Sub for event streaming
+  - `KafkaTransport` - Apache Kafka for enterprise event streaming
+
+- **Transform Enhancements**:
+  - JSONPath support via `jsonpath-ng` (expressions starting with `$` or `@`)
+  - New functions: `first()`, `last()`, `flatten()`, `unique()`, `sort()`
+
+- **API Health Checks** - `llmteam.api.health`:
+  - `HealthChecker` class with component health checks
+  - `ComponentHealth` and `HealthStatus` models
+  - Pre-built checks for database, Redis, memory, and disk
+
+- **CLI Commands**:
+  - `llmteam providers` - List available LLM providers with status
+  - `llmteam check` - Comprehensive segment validation with JSON output
+
+- **Examples Directory**:
+  - `quickstart/` - Simple workflow example
+  - `conditional_flow/` - Branching with switch/condition
+  - `custom_handler/` - Creating and registering custom handlers
+  - Additional example directories for enterprise patterns
+
+- **Contributing Guide** - CONTRIBUTING.md with development guidelines
+
+- New optional dependencies: `jsonpath`, `kafka`
+
+### Changed
+- Updated `version` command to show more installed components
+- Extended handlers package with SubworkflowHandler and SwitchHandler
+
 ## [2.1.0] - 2025-01-17
 
 ### Added

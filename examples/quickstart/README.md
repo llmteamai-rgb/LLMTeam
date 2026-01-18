@@ -1,42 +1,23 @@
-# LLMTeam Quickstart
+# Quickstart: Your First Workflow
 
-Get started with LLMTeam in 5 minutes.
+Run an LLM-powered workflow in 5 minutes.
 
-## Installation
+## Prerequisites
 
 ```bash
 pip install llmteam-ai[providers]
+# Ensure OPENAI_API_KEY is set in your environment
 ```
 
-## Set up API Key
+## Run
 
 ```bash
-# For OpenAI
-export OPENAI_API_KEY=sk-your-key-here
-
-# Or for Anthropic
-export ANTHROPIC_API_KEY=sk-ant-your-key-here
+python simple_workflow.py
 ```
 
-## Run the Example
+## Expected Output
 
-```bash
-python simple.py
 ```
-
-## What's Happening
-
-1. **Define a Segment** - A workflow with steps and edges
-2. **Create Runtime** - Context with LLM provider
-3. **Run Segment** - Execute the workflow
-4. **Get Results** - Output from the final step
-
-## Files
-
-- `simple.py` - Minimal Python example
-- `workflow.json` - Same workflow as JSON
-
-## Next Steps
-
-- Check out `../simple_workflow/` for a more complete example
-- See `../fastapi_server/` for REST API integration
+Status: completed
+Answer: The capital of France is Paris.
+```

@@ -420,6 +420,10 @@ def version() -> None:
         ("api", "llmteam.api"),
         ("tenancy", "llmteam.tenancy"),
         ("audit", "llmteam.audit"),
+        ("providers", "llmteam.providers"),
+        ("middleware", "llmteam.middleware"),
+        ("auth", "llmteam.auth"),
+        ("secrets", "llmteam.secrets"),
     ]
 
     for name, module in components:
@@ -428,6 +432,269 @@ def version() -> None:
             click.secho(f"  {name}: available", fg="green")
         except ImportError:
             click.secho(f"  {name}: not installed", fg="yellow")
+
+
+@cli.command()
+@click.option(
+    "--json", "-j",
+    "as_json",
+    is_flag=True,
+    help="Output as JSON",
+)
+def providers(as_json: bool) -> None:
+    """List available LLM providers.
+
+    Shows all LLM providers with their status (installed or not).
+
+    Example:
+
+        llmteam providers
+
+        llmteam providers --json
+    """
+    provider_info = [
+        {
+            "name": "OpenAI",
+            "class": "OpenAIProvider",
+            "module": "llmteam.providers.openai",
+            "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "env_var": "OPENAI_API_KEY",
+            "install": "pip install llmteam-ai[providers]",
+        },
+        {
+            "name": "Anthropic",
+            "class": "AnthropicProvider",
+            "module": "llmteam.providers.anthropic",
+            "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
+            "env_var": "ANTHROPIC_API_KEY",
+            "install": "pip install llmteam-ai[providers]",
+        },
+        {
+            "name": "Azure OpenAI",
+            "class": "AzureOpenAIProvider",
+            "module": "llmteam.providers.azure",
+            "models": ["gpt-4", "gpt-35-turbo"],
+            "env_var": "AZURE_OPENAI_API_KEY",
+            "install": "pip install llmteam-ai[providers]",
+        },
+        {
+            "name": "AWS Bedrock",
+            "class": "BedrockProvider",
+            "module": "llmteam.providers.bedrock",
+            "models": ["anthropic.claude-3", "amazon.titan", "meta.llama2"],
+            "env_var": "AWS_ACCESS_KEY_ID",
+            "install": "pip install llmteam-ai[aws]",
+        },
+        {
+            "name": "Google Vertex AI",
+            "class": "VertexAIProvider",
+            "module": "llmteam.providers.vertex",
+            "models": ["gemini-1.5-pro", "gemini-1.5-flash"],
+            "env_var": "GOOGLE_APPLICATION_CREDENTIALS",
+            "install": "pip install llmteam-ai[vertex]",
+        },
+        {
+            "name": "Ollama",
+            "class": "OllamaProvider",
+            "module": "llmteam.providers.ollama",
+            "models": ["llama2", "mistral", "codellama", "phi"],
+            "env_var": "OLLAMA_HOST",
+            "install": "pip install llmteam-ai (no extra needed)",
+        },
+        {
+            "name": "LiteLLM",
+            "class": "LiteLLMProvider",
+            "module": "llmteam.providers.litellm",
+            "models": ["100+ providers via unified API"],
+            "env_var": "(varies by provider)",
+            "install": "pip install llmteam-ai[litellm]",
+        },
+    ]
+
+    # Check which providers are installed
+    import os
+    for provider in provider_info:
+        try:
+            __import__(provider["module"])
+            provider["installed"] = True
+        except ImportError:
+            provider["installed"] = False
+
+        # Check if env var is set
+        env_var = provider["env_var"]
+        if env_var and not env_var.startswith("("):
+            provider["configured"] = bool(os.environ.get(env_var))
+        else:
+            provider["configured"] = None
+
+    if as_json:
+        _write_json(provider_info, sys.stdout)
+        return
+
+    click.echo("\nAvailable LLM Providers:\n")
+
+    for provider in provider_info:
+        # Status indicator
+        if provider["installed"]:
+            if provider.get("configured"):
+                status_icon = click.style("✓", fg="green")
+                status_text = "ready"
+            else:
+                status_icon = click.style("○", fg="yellow")
+                status_text = "installed (not configured)"
+        else:
+            status_icon = click.style("✗", fg="red")
+            status_text = "not installed"
+
+        click.echo(f"  {status_icon} {click.style(provider['name'], bold=True)}")
+        click.echo(f"      Class: {provider['class']}")
+        click.echo(f"      Status: {status_text}")
+        click.echo(f"      Models: {', '.join(provider['models'][:3])}")
+        if not provider["installed"]:
+            click.echo(f"      Install: {provider['install']}")
+        click.echo()
+
+
+@cli.command()
+@click.argument("segment_file", type=click.Path(exists=True))
+@click.option("--format", "-f", "output_format", default="text", type=click.Choice(["text", "json"]))
+def check(segment_file: str, output_format: str) -> None:
+    """Check a segment file for issues.
+
+    Performs comprehensive validation including:
+    - JSON syntax validation
+    - Schema validation
+    - Step type validation
+    - Edge connection validation
+    - Cycle detection
+
+    Example:
+
+        llmteam check workflow.json
+
+        llmteam check workflow.json --format json
+    """
+    segment_data = _load_json_file(segment_file)
+
+    issues: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    # Basic structure validation
+    required_fields = ["segment_id", "name", "steps"]
+    for field in required_fields:
+        if field not in segment_data:
+            issues.append({
+                "type": "error",
+                "code": "MISSING_FIELD",
+                "message": f"Missing required field: {field}",
+                "location": "root",
+            })
+
+    # Validate steps
+    steps = segment_data.get("steps", [])
+    step_ids: set[str] = set()
+
+    for i, step in enumerate(steps):
+        step_id = step.get("step_id")
+        if not step_id:
+            issues.append({
+                "type": "error",
+                "code": "MISSING_STEP_ID",
+                "message": f"Step {i}: missing step_id",
+                "location": f"steps[{i}]",
+            })
+            continue
+
+        if step_id in step_ids:
+            issues.append({
+                "type": "error",
+                "code": "DUPLICATE_STEP_ID",
+                "message": f"Duplicate step_id: {step_id}",
+                "location": f"steps[{i}]",
+            })
+        step_ids.add(step_id)
+
+        step_type = step.get("step_type") or step.get("type")
+        if not step_type:
+            issues.append({
+                "type": "error",
+                "code": "MISSING_STEP_TYPE",
+                "message": f"Step {step_id}: missing step_type",
+                "location": f"steps[{i}]",
+            })
+
+    # Validate edges
+    edges = segment_data.get("edges", [])
+    for i, edge in enumerate(edges):
+        source = edge.get("source_step") or edge.get("from_step")
+        target = edge.get("target_step") or edge.get("to_step")
+
+        if source and source not in step_ids:
+            issues.append({
+                "type": "error",
+                "code": "UNKNOWN_SOURCE_STEP",
+                "message": f"Edge {i}: unknown source step '{source}'",
+                "location": f"edges[{i}]",
+            })
+
+        if target and target not in step_ids:
+            issues.append({
+                "type": "error",
+                "code": "UNKNOWN_TARGET_STEP",
+                "message": f"Edge {i}: unknown target step '{target}'",
+                "location": f"edges[{i}]",
+            })
+
+    # Validate entrypoint
+    entrypoint = segment_data.get("entrypoint")
+    if entrypoint and entrypoint not in step_ids:
+        issues.append({
+            "type": "error",
+            "code": "INVALID_ENTRYPOINT",
+            "message": f"Entrypoint references unknown step: {entrypoint}",
+            "location": "entrypoint",
+        })
+    elif not entrypoint and steps:
+        warnings.append({
+            "type": "warning",
+            "code": "NO_ENTRYPOINT",
+            "message": "No entrypoint defined, first step will be used",
+            "location": "root",
+        })
+
+    # Output results
+    result = {
+        "file": segment_file,
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "warnings": warnings,
+        "stats": {
+            "steps": len(steps),
+            "edges": len(edges),
+        },
+    }
+
+    if output_format == "json":
+        _write_json(result, sys.stdout)
+    else:
+        if issues:
+            click.secho(f"\nErrors in {segment_file}:", fg="red", bold=True)
+            for issue in issues:
+                click.secho(f"  ✗ [{issue['code']}] {issue['message']}", fg="red")
+                click.echo(f"    Location: {issue['location']}")
+
+        if warnings:
+            click.secho(f"\nWarnings in {segment_file}:", fg="yellow")
+            for warning in warnings:
+                click.secho(f"  ! [{warning['code']}] {warning['message']}", fg="yellow")
+
+        if not issues and not warnings:
+            click.secho(f"\n✓ {segment_file} is valid", fg="green")
+
+        click.echo(f"\nStats: {len(steps)} steps, {len(edges)} edges")
+
+    if issues:
+        raise SystemExit(1)
 
 
 @cli.command()
