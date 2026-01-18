@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2025-01-18
+
+### Added
+- **Team Contracts** - Formal interface definitions in `llmteam.roles`:
+  - `TeamContract` - Input/output contract with TypedPort validation
+  - `ValidationResult` - Validation feedback with errors list
+  - `ContractValidationError` - Exception for validation failures
+  - Contract support in `PipelineOrchestrator` with `strict_validation` mode
+
+- **Team Handler** - Execute agent teams as Canvas steps:
+  - `TeamHandler` - New step type `team` for invoking PipelineOrchestrator
+  - Input/output mapping for flexible data transformation
+  - Registered in StepCatalog (now 12 built-in types)
+
+- **Escalation System** - Structured escalation handling in `GroupOrchestrator`:
+  - `EscalationLevel` - INFO, WARNING, CRITICAL, EMERGENCY levels
+  - `EscalationAction` - ACKNOWLEDGE, RETRY, REDIRECT, ABORT, HUMAN_REVIEW
+  - `Escalation` - Escalation event with context and metadata
+  - `EscalationDecision` - Handler response with action and target
+  - `handle_escalation()` - Process escalations with default or custom handlers
+  - `get_escalation_history()` - Query escalations with pipeline/level filters
+  - `collect_metrics()` - Health score and escalation statistics
+
+- **Secure Data Bus** - Event-driven communication in `llmteam.transport`:
+  - `SecureBus` - Publish/subscribe pattern for events
+  - `BusEventType` - RUN_STARTED, RUN_COMPLETED, RUN_FAILED, STEP_*, ESCALATION
+  - `BusEvent` - Event model with trace_id, process_run_id, data
+  - `DataMode` - REFS_ONLY (redacted) vs FULL_PAYLOAD modes
+  - `ControlCommand` - PAUSE, RESUME, CANCEL for run management
+  - Event buffering with `get_events()` and `clear_buffer()`
+  - Audit logging with `get_audit_log()`
+  - Convenience methods: `run_started()`, `run_completed()`, `step_started()`, etc.
+
+- **New Tests** - 65 new tests for v2.3.0 components:
+  - `tests/roles/test_contract.py` - TeamContract validation tests
+  - `tests/roles/test_escalation.py` - Escalation handling tests
+  - `tests/canvas/test_team_handler.py` - TeamHandler execution tests
+  - `tests/transport/test_bus.py` - SecureBus messaging tests
+
+### Changed
+- `GroupOrchestrator` role changed from Router to Coordinator/Supervisor
+- Routing between teams now defined in Canvas, not GroupOrchestrator
+
+### Deprecated
+- `GroupOrchestrator.orchestrate()` - Use Canvas with TeamHandler for team routing
+
+## [2.2.1] - 2025-01-18
+
+### Added
+- **Widget Protocol** - KorpOS UI integration in `llmteam.canvas.widget`:
+  - `Widget` protocol with `render()` and `handle_intent()` methods
+  - `WidgetState` - IDLE, LOADING, ERROR, SUCCESS states
+  - `WidgetIntent` - User interaction intents
+
+- **RAG Handler** - Retrieval-augmented generation in `llmteam.canvas.handlers`:
+  - `RAGHandler` - Native and proxy modes for RAG workflows
+  - Integration with vector stores and retrievers
+
+- **Context Provider** - Abstraction for context sources:
+  - `ContextProvider` - Native and proxy mode support
+  - Pluggable context retrieval for agents
+
+- **End-to-End Tests** - `tests/e2e/` for workflow execution testing
+
+### Changed
+- Refactored handlers for better maintainability
+- Streamlined event transports (Redis, Kafka)
+
 ## [2.2.0] - 2025-01-18
 
 ### Added
@@ -249,6 +317,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core pipeline execution framework
 - Basic agent context management
 
+[2.3.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.1...v2.3.0
+[2.2.1]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.0.2...v2.0.3
