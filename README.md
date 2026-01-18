@@ -2,11 +2,16 @@
 
 **Enterprise AI Workflow Runtime** for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
 
-[![PyPI version](https://badge.fury.io/py/llmteam-ai.svg)](https://pypi.org/project/llmteam-ai/)
+[![PyPI version](https://img.shields.io/pypi/v/llmteam-ai.svg)](https://pypi.org/project/llmteam-ai/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/llmteam-ai.svg)](https://pypi.org/project/llmteam-ai/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub Release](https://img.shields.io/github/v/release/llmteamai-rgb/LLMTeam)](https://github.com/llmteamai-rgb/LLMTeam/releases)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Type checked: mypy](https://img.shields.io/badge/type%20checked-mypy-blue.svg)](https://mypy-lang.org/)
 
-## Current Version: v2.1.0 — Extended Providers & Secrets
+## Current Version: v2.2.0 — Examples, Documentation & Enterprise Features
 
 ### New Features in v2.0.0
 
