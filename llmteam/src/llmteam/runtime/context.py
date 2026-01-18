@@ -20,6 +20,7 @@ from llmteam.runtime.exceptions import ResourceNotFoundError, RuntimeContextErro
 if TYPE_CHECKING:
     from llmteam.ratelimit import RateLimitedExecutor
     from llmteam.audit import AuditTrail
+    from llmteam.transport import SecureBus
 
 
 logger = get_logger(__name__)
@@ -64,6 +65,9 @@ class RuntimeContext:
     # === Policies (from v1.7.0-v1.9.0) ===
     rate_limiter: Optional["RateLimitedExecutor"] = None
     audit_trail: Optional["AuditTrail"] = None
+
+    # === Transport (v2.3.0) ===
+    bus: Optional["SecureBus"] = None
 
     # === Event Hooks ===
     on_step_start: Optional[Callable[[Any], None]] = None
@@ -156,6 +160,7 @@ class RuntimeContext:
             secrets=overrides.get("secrets", self.secrets),
             rate_limiter=overrides.get("rate_limiter", self.rate_limiter),
             audit_trail=overrides.get("audit_trail", self.audit_trail),
+            bus=overrides.get("bus", self.bus),
             on_step_start=overrides.get("on_step_start", self.on_step_start),
             on_step_complete=overrides.get("on_step_complete", self.on_step_complete),
             on_step_error=overrides.get("on_step_error", self.on_step_error),
@@ -205,6 +210,10 @@ class StepContext:
     async def get_secret(self, secret_ref: str) -> str:
         """Get secret by reference."""
         return await self.runtime.resolve_secret(secret_ref)
+
+    def get_bus(self) -> Optional["SecureBus"]:
+        """Get SecureBus for event publishing."""
+        return self.runtime.bus
 
     # === Step-local state ===
 

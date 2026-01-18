@@ -7,6 +7,8 @@ Combines orchestration strategy with process mining for intelligent pipeline man
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import warnings
+
 from llmteam.observability import get_logger
 from llmteam.roles.orchestration import (
     OrchestrationStrategy,
@@ -19,6 +21,7 @@ from llmteam.roles.process_mining import (
     ProcessMetrics,
     generate_uuid,
 )
+from llmteam.roles.contract import TeamContract, ContractValidationError
 
 
 logger = get_logger(__name__)
@@ -60,6 +63,8 @@ class PipelineOrchestrator:
         pipeline_id: str,
         strategy: Optional[OrchestrationStrategy] = None,
         enable_process_mining: bool = True,
+        contract: Optional[TeamContract] = None,
+        strict_validation: bool = False,
     ):
         """
         Initialize pipeline orchestrator.
@@ -68,9 +73,13 @@ class PipelineOrchestrator:
             pipeline_id: Unique identifier for this pipeline
             strategy: Orchestration strategy (defaults to RuleBasedStrategy)
             enable_process_mining: Whether to enable process mining
+            contract: Optional TeamContract for input/output validation
+            strict_validation: If True, raise errors on validation failures
         """
         self.pipeline_id = pipeline_id
         self.strategy = strategy or RuleBasedStrategy()
+        self.contract = contract or TeamContract.default()
+        self.strict_validation = strict_validation
 
         # Process Mining
         self.process_mining = ProcessMiningEngine() if enable_process_mining else None
@@ -78,8 +87,11 @@ class PipelineOrchestrator:
         # State
         self._agents: Dict[str, Any] = {}
         self._execution_history: List[dict] = []
-        
-        logger.debug(f"PipelineOrchestrator initialized for {pipeline_id} (mining_enabled={enable_process_mining})")
+
+        logger.debug(
+            f"PipelineOrchestrator initialized for {pipeline_id} "
+            f"(mining={enable_process_mining}, contract={self.contract.name})"
+        )
 
     def register_agent(self, name: str, agent: Any) -> None:
         """
@@ -113,9 +125,22 @@ class PipelineOrchestrator:
 
         Returns:
             Final pipeline state
+
+        Raises:
+            ContractValidationError: If strict_validation is True and validation fails
         """
         logger.info(f"Starting orchestration for run {run_id} in pipeline {self.pipeline_id}")
-        
+
+        # Validate input against contract
+        input_validation = self.contract.validate_input(input_data)
+        if not input_validation.valid:
+            logger.warning(f"Input validation failed: {input_validation.errors}")
+            if self.strict_validation:
+                raise ContractValidationError(
+                    f"Input validation failed for pipeline {self.pipeline_id}",
+                    input_validation.errors,
+                )
+
         current_step = "start"
         state = input_data.copy()
 
@@ -231,9 +256,21 @@ class PipelineOrchestrator:
                     "timestamp": datetime.now().isoformat(),
                 })
 
+            # Validate output against contract
+            output_validation = self.contract.validate_output(state)
+            if not output_validation.valid:
+                logger.warning(f"Output validation failed: {output_validation.errors}")
+                if self.strict_validation:
+                    raise ContractValidationError(
+                        f"Output validation failed for pipeline {self.pipeline_id}",
+                        output_validation.errors,
+                    )
+
             logger.info(f"Orchestration finished for run {run_id}")
             return state
 
+        except ContractValidationError:
+            raise
         except Exception as e:
             logger.error(f"Orchestration failed for run {run_id}: {str(e)}")
             raise

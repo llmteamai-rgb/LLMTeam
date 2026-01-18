@@ -4,7 +4,7 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 2.2.1 (Hardening, Enterprise Integration, RAG Proxy)
+Version: 2.3.0 (TeamContract, TeamHandler, SecureBus, Escalation)
 
 License Tiers:
     - COMMUNITY (free): Basic features, memory stores
@@ -23,7 +23,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "2.2.1"
+__version__ = "2.3.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 

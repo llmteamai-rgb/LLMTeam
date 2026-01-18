@@ -252,7 +252,10 @@ class StepCatalog:
             ParallelSplitHandler,
             ParallelJoinHandler,
             HumanTaskHandler,
+            SubworkflowHandler,
+            SwitchHandler,
         )
+        from llmteam.canvas.handlers.team_handler import TeamHandler
 
         # Create handler instances
         llm_handler = LLMAgentHandler()
@@ -261,6 +264,9 @@ class StepCatalog:
         condition_handler = ConditionHandler()
         parallel_split_handler = ParallelSplitHandler()
         parallel_join_handler = ParallelJoinHandler()
+        subworkflow_handler = SubworkflowHandler()
+        switch_handler = SwitchHandler()
+        team_handler = TeamHandler()
         try:
             human_handler = HumanTaskHandler()
             
@@ -544,4 +550,139 @@ class StepCatalog:
                 ],
             ),
             handler=transform_handler,
+        )
+
+        # Subworkflow
+        self.register(
+            StepTypeMetadata(
+                type_id="subworkflow",
+                version="1.0",
+                display_name="Subworkflow",
+                description="Execute a nested workflow",
+                category=StepCategory.CONTROL,
+                icon="layers",
+                color="#8E44AD",
+                config_schema={
+                    "type": "object",
+                    "properties": {
+                        "segment_id": {
+                            "type": "string",
+                            "description": "ID of the segment to run",
+                        },
+                        "segment_ref": {
+                            "type": "string",
+                            "description": "Reference/Alias to segment",
+                        },
+                        "isolated": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Run in isolated trace context",
+                        },
+                        "input_mapping": {
+                            "type": "object",
+                            "description": "Map parent input to subworkflow input",
+                        },
+                        "output_mapping": {
+                            "type": "object",
+                            "description": "Map subworkflow output to parent output",
+                        },
+                    },
+                },
+                input_ports=[
+                    PortSpec("input", "any", "Parent Input"),
+                ],
+                output_ports=[
+                    PortSpec("output", "any", "Subworkflow Output"),
+                ],
+            ),
+            handler=subworkflow_handler,
+        )
+
+        # Switch
+        self.register(
+            StepTypeMetadata(
+                type_id="switch",
+                version="1.0",
+                display_name="Switch",
+                description="Multi-way branching logic",
+                category=StepCategory.CONTROL,
+                icon="git-pull-request",
+                color="#9B59B6",
+                config_schema={
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Value to switch on",
+                        },
+                        "cases": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": "string"},
+                                    "expression": {"type": "string"},
+                                    "port": {"type": "string"},
+                                },
+                            },
+                        },
+                        "default_port": {
+                            "type": "string",
+                            "default": "default",
+                        },
+                    },
+                },
+                input_ports=[
+                    PortSpec("input", "any", "Input Data"),
+                ],
+                output_ports=[
+                    PortSpec("default", "any", "Default Path"),
+                    # Note: Dynamic ports are added at runtime or UI configuration
+                ],
+            ),
+            handler=switch_handler,
+        )
+
+        # Team (v2.3.0)
+        self.register(
+            StepTypeMetadata(
+                type_id="team",
+                version="1.0",
+                display_name="Team",
+                description="Invoke an agent team as a workflow step",
+                category=StepCategory.AI,
+                icon="users",
+                color="#27AE60",
+                config_schema={
+                    "type": "object",
+                    "properties": {
+                        "team_ref": {
+                            "type": "string",
+                            "description": "Reference to registered team",
+                        },
+                        "input_mapping": {
+                            "type": "object",
+                            "description": "Map step input to team input",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "output_mapping": {
+                            "type": "object",
+                            "description": "Map team output to step output",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Execution timeout in seconds",
+                        },
+                    },
+                    "required": ["team_ref"],
+                },
+                input_ports=[
+                    PortSpec("input", "any", "Input Data"),
+                ],
+                output_ports=[
+                    PortSpec("output", "any", "Team Output"),
+                ],
+            ),
+            handler=team_handler,
         )

@@ -2,13 +2,18 @@
 Group orchestrator for llmteam.
 
 Manages multiple pipelines with load balancing, content-based routing, and parallel execution.
+
+v2.3.0: GroupOrchestrator is being transitioned from a Router to a Coordinator/Supervisor role.
+Use Canvas with TeamHandler for routing. GroupOrchestrator now focuses on escalation handling
+and metrics collection.
 """
 
 import asyncio
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 from llmteam.observability import get_logger
 
@@ -112,6 +117,95 @@ class PipelineStatus:
             "current_step": self.current_step,
             "error_count": self.error_count,
             "last_update": self.last_update.isoformat(),
+        }
+
+
+class EscalationLevel(Enum):
+    """Escalation severity levels."""
+
+    INFO = "info"  # Informational escalation
+    WARNING = "warning"  # Needs attention
+    CRITICAL = "critical"  # Immediate action required
+    EMERGENCY = "emergency"  # System-wide issue
+
+
+class EscalationDict(TypedDict):
+    """Dictionary representation of Escalation."""
+    escalation_id: str
+    level: str
+    source_pipeline: str
+    reason: str
+    context: Dict[str, Any]
+    timestamp: str
+
+
+@dataclass
+class Escalation:
+    """
+    Escalation request from a pipeline.
+
+    Attributes:
+        escalation_id: Unique escalation identifier
+        level: Severity level
+        source_pipeline: Pipeline that raised the escalation
+        reason: Reason for escalation
+        context: Additional context data
+        timestamp: When escalation was raised
+    """
+
+    escalation_id: str
+    level: EscalationLevel
+    source_pipeline: str
+    reason: str
+    context: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> EscalationDict:
+        """Convert to dictionary."""
+        return {
+            "escalation_id": self.escalation_id,
+            "level": self.level.value,
+            "source_pipeline": self.source_pipeline,
+            "reason": self.reason,
+            "context": self.context,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+class EscalationAction(Enum):
+    """Actions that can be taken on escalation."""
+
+    ACKNOWLEDGE = "acknowledge"  # Acknowledge and continue
+    RETRY = "retry"  # Retry the operation
+    REDIRECT = "redirect"  # Redirect to another pipeline
+    ABORT = "abort"  # Abort the operation
+    HUMAN_REVIEW = "human_review"  # Request human intervention
+
+
+@dataclass
+class EscalationDecision:
+    """
+    Decision on how to handle an escalation.
+
+    Attributes:
+        action: Action to take
+        target_pipeline: Target pipeline for redirect (if applicable)
+        message: Message for logging/notification
+        metadata: Additional metadata
+    """
+
+    action: EscalationAction
+    target_pipeline: Optional[str] = None
+    message: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "action": self.action.value,
+            "target_pipeline": self.target_pipeline,
+            "message": self.message,
+            "metadata": self.metadata,
         }
 
 
@@ -352,7 +446,8 @@ class GroupOrchestrator:
 
         self._pipelines: Dict[str, Any] = {}
         self._statuses: Dict[str, PipelineStatus] = {}
-        
+        self._escalation_history: List[Escalation] = []
+
         logger.debug(f"GroupOrchestrator initialized for {group_id}")
 
     def register_pipeline(self, pipeline: Any) -> None:
@@ -391,6 +486,11 @@ class GroupOrchestrator:
         """
         Execute group orchestration.
 
+        .. deprecated:: 2.3.0
+            Use Canvas with TeamHandler for routing. GroupOrchestrator is being
+            transitioned to a Coordinator/Supervisor role focused on escalation
+            handling and metrics collection.
+
         Args:
             run_id: Unique run identifier
             input_data: Input data for the group
@@ -398,6 +498,13 @@ class GroupOrchestrator:
         Returns:
             Orchestration result
         """
+        warnings.warn(
+            "GroupOrchestrator.orchestrate() is deprecated since v2.3.0. "
+            "Use Canvas with TeamHandler for routing instead. "
+            "GroupOrchestrator now focuses on escalation handling and metrics.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         logger.info(f"Starting group orchestration for run {run_id} in group {self.group_id}")
         
         try:
@@ -540,3 +647,191 @@ class GroupOrchestrator:
                 b for m in all_metrics for b in m.bottleneck_activities
             )),
         }
+
+    # === v2.3.0: Coordinator/Supervisor Role ===
+
+    async def handle_escalation(
+        self,
+        escalation: Escalation,
+        handler: Optional[Callable[[Escalation], EscalationDecision]] = None,
+    ) -> EscalationDecision:
+        """
+        Handle an escalation from a pipeline.
+
+        This is the primary entry point for the new Coordinator role.
+        Escalations can come from pipelines when they encounter issues
+        that require supervisor intervention.
+
+        Args:
+            escalation: The escalation to handle
+            handler: Optional custom handler function. If not provided,
+                     uses default handling based on escalation level.
+
+        Returns:
+            EscalationDecision indicating how to proceed
+
+        Example:
+            escalation = Escalation(
+                escalation_id="esc-123",
+                level=EscalationLevel.WARNING,
+                source_pipeline="analysis_pipeline",
+                reason="Model confidence below threshold",
+                context={"confidence": 0.3},
+            )
+            decision = await group.handle_escalation(escalation)
+        """
+        logger.info(
+            f"Handling escalation '{escalation.escalation_id}' "
+            f"from '{escalation.source_pipeline}' (level={escalation.level.value})"
+        )
+
+        # Track escalation
+        self._escalation_history.append(escalation)
+
+        # Use custom handler if provided
+        if handler:
+            decision = handler(escalation)
+            logger.debug(f"Custom handler decision: {decision.action.value}")
+            return decision
+
+        # Default handling based on level
+        decision = self._default_escalation_handler(escalation)
+        logger.debug(f"Default handler decision: {decision.action.value}")
+        return decision
+
+    def _default_escalation_handler(self, escalation: Escalation) -> EscalationDecision:
+        """
+        Default escalation handling based on severity level.
+
+        Args:
+            escalation: The escalation to handle
+
+        Returns:
+            EscalationDecision
+        """
+        if escalation.level == EscalationLevel.INFO:
+            return EscalationDecision(
+                action=EscalationAction.ACKNOWLEDGE,
+                message=f"Acknowledged info escalation: {escalation.reason}",
+            )
+
+        elif escalation.level == EscalationLevel.WARNING:
+            # Try to find an alternative pipeline
+            available = [
+                pid for pid, status in self._statuses.items()
+                if status.status == "idle" and pid != escalation.source_pipeline
+            ]
+            if available:
+                return EscalationDecision(
+                    action=EscalationAction.REDIRECT,
+                    target_pipeline=available[0],
+                    message=f"Redirecting to {available[0]} due to: {escalation.reason}",
+                )
+            return EscalationDecision(
+                action=EscalationAction.RETRY,
+                message=f"Retrying due to warning: {escalation.reason}",
+            )
+
+        elif escalation.level == EscalationLevel.CRITICAL:
+            return EscalationDecision(
+                action=EscalationAction.HUMAN_REVIEW,
+                message=f"Critical issue requires human review: {escalation.reason}",
+                metadata={"escalation": escalation.to_dict()},
+            )
+
+        elif escalation.level == EscalationLevel.EMERGENCY:
+            return EscalationDecision(
+                action=EscalationAction.ABORT,
+                message=f"Emergency abort: {escalation.reason}",
+                metadata={"escalation": escalation.to_dict()},
+            )
+
+        return EscalationDecision(
+            action=EscalationAction.ACKNOWLEDGE,
+            message="Unknown escalation level, acknowledging",
+        )
+
+    def collect_metrics(self) -> Dict[str, Any]:
+        """
+        Collect comprehensive metrics for process mining and monitoring.
+
+        This method aggregates metrics from all pipelines and includes
+        escalation statistics for the Coordinator role.
+
+        Returns:
+            Dictionary with comprehensive metrics including:
+            - Pipeline metrics (completion rates, error rates, bottlenecks)
+            - Escalation statistics
+            - Group health indicators
+
+        Example:
+            metrics = group.collect_metrics()
+            print(f"Health score: {metrics['health_score']}")
+            print(f"Escalations today: {metrics['escalations']['total']}")
+        """
+        # Get base group metrics
+        base_metrics = self.get_group_metrics()
+
+        # Calculate escalation metrics
+        now = datetime.now()
+        recent_escalations = [
+            e for e in self._escalation_history
+            if (now - e.timestamp).total_seconds() < 86400  # Last 24 hours
+        ]
+
+        escalation_by_level = {}
+        for level in EscalationLevel:
+            count = sum(1 for e in recent_escalations if e.level == level)
+            escalation_by_level[level.value] = count
+
+        escalation_by_pipeline = {}
+        for e in recent_escalations:
+            if e.source_pipeline not in escalation_by_pipeline:
+                escalation_by_pipeline[e.source_pipeline] = 0
+            escalation_by_pipeline[e.source_pipeline] += 1
+
+        # Calculate health score (0-100)
+        health_score = 100
+        if base_metrics.get("avg_error_rate", 0) > 0:
+            health_score -= min(30, base_metrics["avg_error_rate"] * 100)
+        critical_escalations = escalation_by_level.get("critical", 0) + escalation_by_level.get("emergency", 0)
+        health_score -= min(40, critical_escalations * 10)
+        health_score = max(0, health_score)
+
+        return {
+            **base_metrics,
+            "escalations": {
+                "total": len(recent_escalations),
+                "by_level": escalation_by_level,
+                "by_pipeline": escalation_by_pipeline,
+            },
+            "health_score": health_score,
+            "collected_at": now.isoformat(),
+        }
+
+    def get_escalation_history(
+        self,
+        pipeline_id: Optional[str] = None,
+        level: Optional[EscalationLevel] = None,
+        limit: int = 100,
+    ) -> List[Escalation]:
+        """
+        Get escalation history with optional filtering.
+
+        Args:
+            pipeline_id: Filter by source pipeline
+            level: Filter by escalation level
+            limit: Maximum number of records to return
+
+        Returns:
+            List of Escalation records
+        """
+        history = self._escalation_history
+
+        if pipeline_id:
+            history = [e for e in history if e.source_pipeline == pipeline_id]
+
+        if level:
+            history = [e for e in history if e.level == level]
+
+        return list(reversed(history[-limit:]))

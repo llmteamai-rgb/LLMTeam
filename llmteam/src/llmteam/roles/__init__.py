@@ -57,6 +57,17 @@ from llmteam.roles.group_orch import (
     ContentBasedRoutingStrategy,
     ParallelFanOutStrategy,
     GroupOrchestrator,
+    # v2.3.0: Escalation
+    EscalationLevel,
+    Escalation,
+    EscalationAction,
+    EscalationDecision,
+)
+
+from llmteam.roles.contract import (
+    TeamContract,
+    ValidationResult,
+    ContractValidationError,
 )
 
 __all__ = [
@@ -86,4 +97,15 @@ __all__ = [
     "ContentBasedRoutingStrategy",
     "ParallelFanOutStrategy",
     "GroupOrchestrator",
+
+    # Escalation (v2.3.0)
+    "EscalationLevel",
+    "Escalation",
+    "EscalationAction",
+    "EscalationDecision",
+
+    # Team Contract (v2.3.0)
+    "TeamContract",
+    "ValidationResult",
+    "ContractValidationError",
 ]
