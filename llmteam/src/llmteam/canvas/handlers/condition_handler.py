@@ -2,6 +2,7 @@
 Condition Handler.
 
 Evaluates conditions and routes to true/false output ports.
+Includes input sanitization to prevent unsafe eval patterns.
 """
 
 from typing import Any
@@ -13,6 +14,36 @@ from llmteam.observability import get_logger
 
 
 logger = get_logger(__name__)
+
+# Security: Maximum expression length
+MAX_EXPRESSION_LENGTH = 1000
+
+# Security: Forbidden patterns that could be used for injection
+FORBIDDEN_PATTERNS = [
+    r'__\w+__',           # Dunder methods (__class__, __import__, etc.)
+    r'\beval\b',          # eval()
+    r'\bexec\b',          # exec()
+    r'\bcompile\b',       # compile()
+    r'\bimport\b',        # import
+    r'\bopen\b',          # open()
+    r'\bos\.',            # os module
+    r'\bsys\.',           # sys module
+    r'\bsubprocess\b',    # subprocess
+    r'\bglobals\b',       # globals()
+    r'\blocals\b',        # locals()
+    r'\bgetattr\b',       # getattr()
+    r'\bsetattr\b',       # setattr()
+    r'\bdelattr\b',       # delattr()
+    r'\b__builtins__\b',  # builtins
+    r'\blambda\b',        # lambda
+    r'\bfor\b.*\bin\b',   # for loops (except 'in' operator)
+    r'\bwhile\b',         # while loops
+    r'\bclass\b',         # class definition
+    r'\bdef\b',           # function definition
+]
+
+# Compiled forbidden patterns for performance
+_FORBIDDEN_REGEX = re.compile('|'.join(FORBIDDEN_PATTERNS), re.IGNORECASE)
 
 
 class ConditionHandler:
@@ -37,9 +68,42 @@ class ConditionHandler:
         "endswith": lambda a, b: str(a).endswith(str(b)),
     }
 
-    def __init__(self) -> None:
-        """Initialize handler."""
-        pass
+    def __init__(self, max_expression_length: int = MAX_EXPRESSION_LENGTH) -> None:
+        """
+        Initialize handler.
+
+        Args:
+            max_expression_length: Maximum allowed expression length
+        """
+        self.max_expression_length = max_expression_length
+
+    def _sanitize_expression(self, expression: str) -> str:
+        """
+        Sanitize expression to prevent injection attacks.
+
+        Args:
+            expression: Raw expression string
+
+        Returns:
+            Sanitized expression
+
+        Raises:
+            ValueError: If expression contains forbidden patterns
+        """
+        # Check length
+        if len(expression) > self.max_expression_length:
+            raise ValueError(
+                f"Expression too long: {len(expression)} > {self.max_expression_length}"
+            )
+
+        # Check for forbidden patterns
+        match = _FORBIDDEN_REGEX.search(expression)
+        if match:
+            raise ValueError(
+                f"Expression contains forbidden pattern: '{match.group()}'"
+            )
+
+        return expression
 
     async def __call__(
         self,
@@ -69,6 +133,8 @@ class ConditionHandler:
         logger.debug(f"Condition: evaluating '{expression}'")
 
         try:
+            # Sanitize expression before evaluation
+            expression = self._sanitize_expression(expression)
             result = self._evaluate(expression, input_data)
             logger.debug(f"Condition result: {result}")
 
