@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 # Try to import jsonpath-ng for advanced path expressions
 try:
-    from jsonpath_ng import parse as jsonpath_parse
+    from jsonpath_ng.ext import parse as jsonpath_parse
     from jsonpath_ng.exceptions import JsonPathParserError
     HAS_JSONPATH = True
 except ImportError:
@@ -62,9 +62,24 @@ class TransformHandler:
         Returns:
             Dict with 'output' containing transformed data
         """
+        default_value = config.get("default")
+
+        logger.debug(f"Transform: config={config}")
+
+        # JSONPath extraction (spec compliant)
+        if "jsonpath" in config:
+            if not HAS_JSONPATH:
+                raise ImportError(
+                    "jsonpath-ng required for JSONPath. "
+                    "Install with: pip install jsonpath-ng"
+                )
+            result = self._evaluate_jsonpath(input_data, config["jsonpath"])
+            if result is None and default_value is not None:
+                result = default_value
+            return {"output": result}
+
         expression = config.get("expression")
         mapping = config.get("mapping")
-        default_value = config.get("default")
 
         logger.debug(f"Transform: expression={expression}, mapping={mapping}")
 

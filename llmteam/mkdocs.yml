@@ -1,102 +1,52 @@
-site_name: LLMTeam Documentation
-site_description: Enterprise AI Workflow Runtime for multi-agent LLM pipelines
-site_url: https://llmteamai-rgb.github.io/LLMTeam
+site_name: LLMTeam
+site_description: Enterprise AI Workflow Runtime
+site_author: LLMTeam AI
 repo_url: https://github.com/llmteamai-rgb/LLMTeam
-repo_name: llmteamai-rgb/LLMTeam
+edit_uri: edit/main/docs/
 
 theme:
   name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
   palette:
     - scheme: default
       primary: indigo
       accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
     - scheme: slate
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
-  features:
-    - navigation.instant
-    - navigation.tracking
-    - navigation.tabs
-    - navigation.sections
-    - navigation.expand
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - content.code.copy
-    - content.code.annotate
-
-plugins:
-  - search
-  - mkdocstrings:
-      handlers:
-        python:
-          options:
-            show_source: true
-            show_root_heading: true
-
-markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.superfences
-  - pymdownx.tabbed:
-      alternate_style: true
-  - admonition
-  - pymdownx.details
-  - attr_list
-  - md_in_html
-  - tables
+        name: Switch to dark mode
 
 nav:
   - Home: index.md
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
-    - Configuration: getting-started/configuration.md
-  - Concepts:
-    - Segments: concepts/segments.md
-    - Steps: concepts/steps.md
-    - Edges: concepts/edges.md
-    - Runtime Context: concepts/runtime-context.md
-  - Step Types:
-    - Overview: steps/overview.md
-    - LLM Agent: steps/llm-agent.md
-    - Transform: steps/transform.md
-    - Condition: steps/condition.md
-    - Loop: steps/loop.md
-    - Parallel: steps/parallel.md
-    - Human Task: steps/human-task.md
-    - HTTP Action: steps/http-action.md
-    - Subworkflow: steps/subworkflow.md
-    - Switch: steps/switch.md
-    - RAG: steps/rag.md
+  - Guides:
+    - Core Concepts: guides/concepts.md
+    - Event Streaming: guides/events.md
+    - Custom Handlers: guides/handlers.md
   - Enterprise:
+    - RAG & Proxy Mode: enterprise/rag.md
     - Security: enterprise/security.md
-    - Multi-tenancy: enterprise/multi-tenancy.md
-    - Audit Trail: enterprise/audit.md
-    - Secrets Management: enterprise/secrets.md
-    - Authentication: enterprise/authentication.md
   - API Reference:
     - REST API: api/rest.md
-    - WebSocket: api/websocket.md
-    - CLI: api/cli.md
-  - Integrations:
-    - LLM Providers: integrations/llm-providers.md
-    - RAG/KAG Proxy: integrations/rag-proxy.md
-    - Event Transports: integrations/event-transports.md
-  - Development:
-    - Contributing: development/contributing.md
-    - Testing: development/testing.md
-    - Architecture: development/architecture.md
+    - Python Client: api/client.md
 
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/llmteamai-rgb/LLMTeam
-    - icon: fontawesome/brands/python
-      link: https://pypi.org/project/llmteam-ai/
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+
+plugins:
+  - search

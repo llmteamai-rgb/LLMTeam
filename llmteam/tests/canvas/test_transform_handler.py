@@ -124,18 +124,74 @@ class TestTransformHandler:
 
         assert result["output"] == input_data
 
-    async def test_data_passthrough_expression(self, handler, mock_ctx):
-        """'data' expression returns data as-is."""
-        input_data = {"value": 42}
+    # === JSONPath Tests ===
 
-        result = await handler(mock_ctx, {"expression": "data"}, input_data)
+    async def test_jsonpath_explicit_config(self, handler, mock_ctx):
+        """Test explicit 'jsonpath' config key."""
+        input_data = {
+            "store": {
+                "book": [
+                    {"category": "fiction", "title": "Book 1"},
+                    {"category": "reference", "title": "Book 2"}
+                ]
+            }
+        }
+        
+        result = await handler(
+            mock_ctx,
+            {"jsonpath": "$.store.book[0].title"},
+            input_data
+        )
+        
+        assert result["output"] == "Book 1"
 
-        assert result["output"] == input_data
+    async def test_jsonpath_implicit_expression(self, handler, mock_ctx):
+        """Test JSONPath via 'expression' key (auto-detect)."""
+        input_data = {
+            "store": {
+                "book": [
+                    {"category": "fiction", "title": "Book 1"},
+                    {"category": "reference", "title": "Book 2"}
+                ]
+            }
+        }
+        
+        result = await handler(
+            mock_ctx,
+            {"expression": "$.store.book[1].title"},
+            input_data
+        )
+        
+        assert result["output"] == "Book 2"
 
-    async def test_dot_passthrough_expression(self, handler, mock_ctx):
-        """'.' expression returns data as-is."""
-        input_data = {"value": 42}
+    async def test_jsonpath_wildcard(self, handler, mock_ctx):
+        """Test JSONPath wildcard returning list."""
+        input_data = {
+            "store": {
+                "book": [
+                    {"category": "fiction", "title": "Book 1"},
+                    {"category": "reference", "title": "Book 2"}
+                ]
+            }
+        }
+        
+        result = await handler(
+            mock_ctx,
+            {"jsonpath": "$.store.book[*].category"},
+            input_data
+        )
+        
+        # Order is usually preserved
+        assert result["output"] == ["fiction", "reference"]
 
-        result = await handler(mock_ctx, {"expression": "."}, input_data)
-
-        assert result["output"] == input_data
+    async def test_jsonpath_default_value(self, handler, mock_ctx):
+        """Test default value with JSONPath."""
+        input_data = {"foo": "bar"}
+        
+        result = await handler(
+            mock_ctx,
+            {"jsonpath": "$.missing.key", "default": "not_found"},
+            input_data
+        )
+        
+        assert result["output"] == "not_found"

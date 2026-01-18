@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 2.2.0
+- **Current version:** 2.2.1
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -70,7 +70,9 @@ make build          # Build package
 llmteam --version
 llmteam catalog              # List step types
 llmteam validate segment.json
+llmteam check segment.json   # Comprehensive validation (v2.2.0)
 llmteam run segment.json --input data.json
+llmteam providers            # List LLM providers (v2.2.0)
 llmteam serve --port 8000    # Start API server
 ```
 
@@ -112,6 +114,12 @@ llmteam serve --port 8000    # Start API server
 | v2.2.0 | `events/transports/redis` | Redis Pub/Sub transport |
 | v2.2.0 | `events/transports/kafka` | Kafka enterprise streaming |
 | v2.2.0 | `api/health` | Health check endpoints |
+| v2.2.0 | `docs/` | Sphinx documentation |
+| v2.2.0 | `examples/` | Quickstart, FastAPI, Enterprise examples |
+| v2.2.1 | `canvas/widget` | Widget Protocol for KorpOS UI (`render()`, `handle_intent()`) |
+| v2.2.1 | `canvas/handlers/rag_handler` | RAG Handler (native/proxy modes) |
+| v2.2.1 | `context/provider` | Context Provider abstraction (native/proxy) |
+| v2.2.1 | `tests/e2e/` | End-to-end workflow execution tests |
 
 ### Key Patterns
 
@@ -153,7 +161,7 @@ async with manager.context(tenant_id):
 3. Create tests in `tests/{module}/test_{module}.py`
 4. Add module to `TEST_MODULES` in `run_tests.py`
 
-Current `TEST_MODULES`: tenancy, audit, context, ratelimit, licensing, execution, roles, actions, human, persistence, runtime, events, canvas, providers, testing
+Test directories: `actions`, `api`, `audit`, `auth`, `canvas`, `cli`, `clients`, `context`, `e2e`, `events`, `execution`, `human`, `licensing`, `middleware`, `observability`, `persistence`, `providers`, `ratelimit`, `roles`, `runtime`, `secrets`, `tenancy`, `testing`
 
 ### Async Code
 
@@ -212,6 +220,7 @@ result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtim
 | `TryCatchHandler` | `try_catch` | Structured try-catch-finally patterns (v2.0.4) |
 | `SubworkflowHandler` | `subworkflow` | Execute nested workflow segments (v2.2.0) |
 | `SwitchHandler` | `switch` | Multi-way branching based on value matching (v2.2.0) |
+| `RAGHandler` | `rag` | Retrieval-augmented generation with native/proxy modes (v2.2.1) |
 
 ### Custom Step Handlers
 

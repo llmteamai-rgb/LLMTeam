@@ -211,7 +211,7 @@ class StepDefinition:
 
         return cls(
             step_id=data["step_id"],
-            type=data["type"],
+            type=data.get("type") or data.get("step_type") or "", # Support alias
             name=data.get("name", ""),
             config=data.get("config", {}),
             input_ports=ports.get("input", ["input"]),
