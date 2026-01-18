@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 2.2.1
+- **Current version:** 2.3.0
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -40,7 +40,10 @@ python run_tests.py --parallel 2       # Limited parallelism
 python run_tests.py --module canvas    # Single module
 python run_tests.py --coverage         # With coverage
 
-# Single test
+# Single test (PowerShell)
+$env:PYTHONPATH="src"; pytest tests/canvas/test_runner.py::TestSegmentRunner::test_simple_run -vv
+
+# Single test (bash)
 PYTHONPATH=src pytest tests/canvas/test_runner.py::TestSegmentRunner::test_simple_run -vv
 ```
 
@@ -70,13 +73,32 @@ make build          # Build package
 llmteam --version
 llmteam catalog              # List step types
 llmteam validate segment.json
-llmteam check segment.json   # Comprehensive validation (v2.2.0)
+llmteam check segment.json   # Comprehensive validation
 llmteam run segment.json --input data.json
-llmteam providers            # List LLM providers (v2.2.0)
+llmteam providers            # List LLM providers
 llmteam serve --port 8000    # Start API server
 ```
 
 ## Architecture
+
+### Core Concept: Teams as Canvas Steps
+
+LLMTeam orchestrates AI agents within teams. Teams are invoked as Canvas workflow steps:
+
+```
+Canvas (SegmentRunner)         — Routing logic (edges, conditions, workflow)
+       │
+       ▼
+GroupOrchestrator              — Coordination (escalations, metrics, supervision)
+       │
+       ▼
+LLMTeam (PipelineOrchestrator) — Agent orchestration (internal pipeline)
+       │
+       ▼
+Agents                         — LLM calls, tools, actions
+```
+
+**Key Principle:** Routing between teams is defined in Canvas, not in GroupOrchestrator.
 
 ### Module Structure
 
@@ -88,38 +110,33 @@ llmteam serve --port 8000    # Start API server
 | v1.7.0 | `ratelimit/` | Rate limiting + circuit breaker |
 | v1.8.0 | `licensing/` | License tiers (Community/Professional/Enterprise) |
 | v1.8.0 | `execution/` | Parallel pipeline execution |
-| v1.8.0 | `roles/` | Orchestrators, process mining |
+| v1.8.0 | `roles/` | Orchestrators, process mining, contracts, escalation |
 | v1.9.0 | `actions/` | External API/webhook calls |
 | v1.9.0 | `human/` | Human-in-the-loop |
 | v1.9.0 | `persistence/` | Snapshot pause/resume |
 | v2.0.0 | `runtime/` | RuntimeContext, RuntimeContextFactory, StepContext |
 | v2.0.0 | `events/` | Worktrail events for UI |
 | v2.0.0 | `canvas/` | Segment execution engine |
-| v2.0.0 | `canvas/handlers/` | Built-in step handlers (LLM, HTTP, Transform, Condition, Parallel) |
+| v2.0.0 | `canvas/handlers/` | Built-in step handlers |
 | v2.0.0 | `canvas/validation` | Segment validation with JSON Schema |
 | v2.0.0 | `observability/` | Structured logging (structlog) |
 | v2.0.0 | `cli/` | Command-line interface |
 | v2.0.0 | `api/` | REST + WebSocket API (FastAPI) |
-| v2.0.0 | `patterns/` | Workflow patterns (fan-out, aggregation) |
 | v2.0.0 | `ports/` | Port definitions for step I/O |
 | v2.0.3 | `providers/` | LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, Ollama, LiteLLM) |
 | v2.0.3 | `testing/` | Mock providers, SegmentTestRunner, StepTestHarness |
 | v2.0.3 | `events/transports/` | WebSocketTransport, SSETransport |
-| v2.0.4 | `middleware/` | Step execution middleware (logging, timing, retry, caching, auth, rate-limit) |
-| v2.0.4 | `auth/` | OIDC, JWT, API key authentication + RBAC middleware |
+| v2.0.4 | `middleware/` | Step execution middleware (logging, timing, retry, caching, auth) |
+| v2.0.4 | `auth/` | OIDC, JWT, API key authentication + RBAC |
 | v2.0.4 | `clients/` | HTTP, GraphQL, gRPC clients with retry and circuit breaker |
 | v2.1.0 | `secrets/` | Secrets management (Vault, AWS, Azure, env fallback) |
 | v2.2.0 | `canvas/handlers/subworkflow_handler` | Nested workflow execution |
 | v2.2.0 | `canvas/handlers/switch_handler` | Multi-way branching (switch/case) |
 | v2.2.0 | `events/transports/redis` | Redis Pub/Sub transport |
 | v2.2.0 | `events/transports/kafka` | Kafka enterprise streaming |
-| v2.2.0 | `api/health` | Health check endpoints |
-| v2.2.0 | `docs/` | Sphinx documentation |
-| v2.2.0 | `examples/` | Quickstart, FastAPI, Enterprise examples |
-| v2.2.1 | `canvas/widget` | Widget Protocol for KorpOS UI (`render()`, `handle_intent()`) |
-| v2.2.1 | `canvas/handlers/rag_handler` | RAG Handler (native/proxy modes) |
-| v2.2.1 | `context/provider` | Context Provider abstraction (native/proxy) |
-| v2.2.1 | `tests/e2e/` | End-to-end workflow execution tests |
+| v2.3.0 | `roles/contract.py` | TeamContract with input/output validation |
+| v2.3.0 | `canvas/handlers/team_handler.py` | Execute agent teams as Canvas steps |
+| v2.3.0 | `transport/bus.py` | SecureBus for event-driven communication |
 
 ### Key Patterns
 
@@ -140,11 +157,30 @@ runtime = factory.create_runtime(tenant_id="acme", instance_id="run-123")
 step_ctx = runtime.child_context("step_1")
 ```
 
-**Context Manager Pattern:** Tenant-scoped operations:
+**TeamContract Pattern (v2.3.0):** Formal input/output contracts for teams:
 ```python
-async with manager.context(tenant_id):
-    # All operations isolated to tenant_id
-    pass
+from llmteam.roles import TeamContract, PipelineOrchestrator
+
+contract = TeamContract(
+    name="triage_team",
+    inputs=[TypedPort(name="ticket", data_type="object", required=True)],
+    outputs=[TypedPort(name="category", data_type="string", required=True)],
+    strict=True,
+)
+
+team = PipelineOrchestrator(pipeline_id="triage", contract=contract)
+```
+
+**Escalation Pattern (v2.3.0):** Structured escalation handling:
+```python
+from llmteam.roles import GroupOrchestrator, Escalation, EscalationLevel
+
+group = GroupOrchestrator("support_group")
+decision = await group.handle_escalation(Escalation(
+    level=EscalationLevel.WARNING,
+    source_pipeline="billing_team",
+    reason="Refund exceeds threshold",
+))
 ```
 
 ### Security Principles
@@ -161,26 +197,27 @@ async with manager.context(tenant_id):
 3. Create tests in `tests/{module}/test_{module}.py`
 4. Add module to `TEST_MODULES` in `run_tests.py`
 
-Test directories: `actions`, `api`, `audit`, `auth`, `canvas`, `cli`, `clients`, `context`, `e2e`, `events`, `execution`, `human`, `licensing`, `middleware`, `observability`, `persistence`, `providers`, `ratelimit`, `roles`, `runtime`, `secrets`, `tenancy`, `testing`
-
 ### Async Code
 
 - Use `asyncio.Lock()` for thread-safety
 - Tests use `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
 - All async methods must consistently use `async`/`await`
 
-### Validation
+## Built-in Step Handlers
 
-Validate segment definitions before execution:
-
-```python
-from llmteam.canvas import validate_segment, SegmentDefinition
-
-result = validate_segment(segment)
-if not result.is_valid:
-    for msg in result.errors:
-        print(f"{msg.severity}: {msg.message}")
-```
+| Handler | Step Type | Purpose |
+|---------|-----------|---------|
+| `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating |
+| `TeamHandler` | `team` | **v2.3.0** Execute agent teams as steps |
+| `HTTPActionHandler` | `http_action` | HTTP requests with headers/timeout |
+| `TransformHandler` | `transform` | Data transformation with expressions |
+| `ConditionHandler` | `condition` | Conditional branching |
+| `SwitchHandler` | `switch` | Multi-way branching |
+| `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches |
+| `ParallelJoinHandler` | `parallel_join` | Merge parallel results |
+| `HumanTaskHandler` | `human_task` | Human approval/input |
+| `SubworkflowHandler` | `subworkflow` | Nested workflow execution |
+| `RAGHandler` | `rag` | Retrieval-augmented generation |
 
 ## Canvas Segment Example
 
@@ -193,10 +230,10 @@ segment = SegmentDefinition(
     entrypoint="start",
     steps=[
         StepDefinition(step_id="start", type="transform", config={}),
-        StepDefinition(step_id="process", type="llm_agent", config={"llm_ref": "gpt4"}),
+        StepDefinition(step_id="triage", type="team", config={"team_ref": "triage_team"}),
     ],
     edges=[
-        EdgeDefinition(from_step="start", to_step="process"),
+        EdgeDefinition(from_step="start", to_step="triage"),
     ],
 )
 
@@ -204,167 +241,12 @@ runner = SegmentRunner()
 result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtime=runtime)
 ```
 
-### Built-in Step Handlers
-
-| Handler | Step Type | Purpose |
-|---------|-----------|---------|
-| `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating and variable substitution |
-| `HTTPActionHandler` | `http_action` | HTTP requests (GET/POST/PUT/PATCH/DELETE) with headers/timeout |
-| `TransformHandler` | `transform` | Data transformation with expressions, field mappings, functions |
-| `ConditionHandler` | `condition` | Conditional branching (eq/ne/gt/lt/contains/and/or) |
-| `ParallelSplitHandler` | `parallel_split` | Fan-out to parallel branches with branch_ids |
-| `ParallelJoinHandler` | `parallel_join` | Merge parallel results (all/any/first strategies) |
-| `HumanTaskHandler` | `human_task` | Human approval/input with timeout, requires HumanInteractionManager |
-| `LoopHandler` | `loop` | For-each, while, until, and range loops (v2.0.4) |
-| `ErrorHandler` | `error` | Catch, fallback, retry, compensate modes (v2.0.4) |
-| `TryCatchHandler` | `try_catch` | Structured try-catch-finally patterns (v2.0.4) |
-| `SubworkflowHandler` | `subworkflow` | Execute nested workflow segments (v2.2.0) |
-| `SwitchHandler` | `switch` | Multi-way branching based on value matching (v2.2.0) |
-| `RAGHandler` | `rag` | Retrieval-augmented generation with native/proxy modes (v2.2.1) |
-
-### Custom Step Handlers
-
-Implement the handler protocol and register with `SegmentRunner.register_handler()`:
-
-```python
-from llmteam.canvas import SegmentRunner
-from llmteam.runtime import StepContext
-
-async def my_handler(step: StepDefinition, input_data: dict, context: StepContext) -> dict:
-    # Your custom logic
-    return {"result": "processed"}
-
-runner = SegmentRunner()
-runner.register_handler("my_step_type", my_handler)
-```
-
-## LLM Providers (v2.0.3+)
-
-Use with `pip install llmteam-ai[providers]` or individual optional deps.
-
-```python
-from llmteam.providers import OpenAIProvider, AnthropicProvider
-
-# OpenAI
-provider = OpenAIProvider(model="gpt-4o")
-response = await provider.complete("Hello!")
-
-# Anthropic
-provider = AnthropicProvider(model="claude-3-5-sonnet-20241022")
-
-# LiteLLM (100+ providers via unified API)
-from llmteam.providers import LiteLLMProvider
-provider = LiteLLMProvider(model="gpt-4")
-```
-
-Available: `OpenAIProvider`, `AnthropicProvider`, `AzureOpenAIProvider`, `BedrockProvider`, `VertexAIProvider`, `OllamaProvider`, `LiteLLMProvider`
-
-## Middleware (v2.0.4+)
-
-Composable interceptors for step execution:
-
-```python
-from llmteam.middleware import MiddlewareStack, LoggingMiddleware, RetryMiddleware, TimingMiddleware
-
-stack = MiddlewareStack()
-stack.use(LoggingMiddleware())
-stack.use(TimingMiddleware(slow_threshold_ms=1000))
-stack.use(RetryMiddleware(max_retries=3))
-```
-
-Built-in: `LoggingMiddleware`, `TimingMiddleware`, `RetryMiddleware`, `CachingMiddleware`, `RateLimitMiddleware`, `AuthMiddleware`, `ValidationMiddleware`
-
-## Secrets Management (v2.1.0)
-
-```python
-from llmteam.secrets import SecretsManager, VaultProvider, AWSSecretsProvider
-
-# HashiCorp Vault
-vault = VaultProvider(url="https://vault.example.com:8200")
-manager = SecretsManager(provider=vault)
-api_key = await manager.get_secret("openai/api-key")
-
-# AWS Secrets Manager
-aws = AWSSecretsProvider(region_name="us-east-1")
-manager = SecretsManager(provider=aws)
-```
-
-Providers: `EnvSecretsProvider`, `VaultProvider`, `AWSSecretsProvider`, `AzureKeyVaultProvider`
-
-## Clients (v2.0.4+)
-
-HTTP, GraphQL, and gRPC clients with retry and circuit breaker:
-
-```python
-from llmteam.clients import HTTPClient, GraphQLClient, GRPCClient
-
-# HTTP
-client = HTTPClient(HTTPClientConfig(base_url="https://api.example.com"))
-response = await client.get("/users")
-
-# GraphQL
-client = GraphQLClient(endpoint="https://api.example.com/graphql")
-result = await client.execute('query { users { name } }')
-
-# gRPC
-async with GRPCClient(target="localhost:50051") as client:
-    response = await client.unary_call("service.Method", "RPC", {"param": "value"})
-```
-
-## Authentication (v2.0.4+)
-
-```python
-from llmteam.auth import OIDCProvider, JWTValidator, APIKeyValidator
-
-# OIDC
-oidc = OIDCProvider(issuer="https://auth.example.com", client_id="app", client_secret="secret")
-token = await oidc.authenticate()
-
-# JWT validation
-validator = JWTValidator(issuer="https://auth.example.com")
-claims = await validator.validate(token)
-```
-
-## Testing Utilities (v2.0.3+)
-
-```python
-from llmteam.testing import MockLLMProvider, SegmentTestRunner, StepTestHarness
-
-# Mock LLM with deterministic responses
-mock_llm = MockLLMProvider(responses=["Hello!", "How can I help?"])
-
-# Run segment in isolated test mode
-runner = SegmentTestRunner()
-result = await runner.run(segment, input_data)
-
-# Unit test individual handlers
-harness = StepTestHarness()
-result = await harness.test_handler(handler, step_config, input_data)
-```
-
-Mocks: `MockLLMProvider`, `MockHTTPClient`, `MockStore`, `MockSecretsProvider`, `MockEventEmitter`
-
 ## Publishing to PyPI
 
 ```bash
 cd llmteam
 python -m build
 python -m twine upload dist/* -u __token__ -p <pypi-token>
-```
-
-## Documentation
-
-```
-docs/
-├── specs/                              # Version specifications (RFC)
-│   ├── v170-security-foundation.md
-│   ├── v180-orchestration-intelligence.md
-│   ├── v190-workflow-runtime.md
-│   └── rfc-v200-canvas-integration.md
-├── testing/                            # Testing documentation
-│   └── TESTING.md                      # Main testing guide
-├── llmteam-v*-implementation-summary.md  # Implementation notes
-└── llmteam-v200-P*.md                  # Priority task lists
 ```
 
 ## Repository Structure
