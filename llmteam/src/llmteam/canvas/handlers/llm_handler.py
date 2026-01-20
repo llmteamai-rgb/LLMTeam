@@ -146,6 +146,17 @@ class LLMAgentHandler:
             Prompt with substituted values
         """
         result = prompt
+
+        # Auto-map 'input' to 'context' for sequential agent flows
+        if "input" in variables and "{context}" in result and "context" not in variables:
+            input_val = variables["input"]
+            if isinstance(input_val, dict) and "output" in input_val:
+                variables["context"] = input_val["output"]
+            elif isinstance(input_val, str):
+                variables["context"] = input_val
+            else:
+                variables["context"] = str(input_val)
+
         for key, value in variables.items():
             placeholder = f"{{{key}}}"
             if placeholder in result:

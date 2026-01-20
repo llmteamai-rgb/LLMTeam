@@ -1,100 +1,91 @@
 """
 Compatibility module for deprecated names.
 
-This module provides backward-compatible aliases with deprecation warnings
-for classes that have been renamed in v2.0.0.
+DEPRECATED: This module will be removed in v5.0.0.
+Use llmteam.team.LLMTeam directly.
 
-Renames in v2.0.0:
-    - Pipeline -> LLMTeam
-    - PipelineOrchestrator -> TeamOrchestrator
+Migration guide:
+    # Old (deprecated)
+    from llmteam.compat import LLMTeam
+
+    # New (recommended)
+    from llmteam import LLMTeam
 """
 
 import warnings
 from typing import Any, Optional
 
-from llmteam.roles.orchestration import OrchestrationStrategy
-from llmteam.roles.pipeline_orch import PipelineOrchestrator
+from llmteam.team import LLMTeam as _LLMTeam
+from llmteam.team import LLMGroup as _LLMGroup
 
 
-class LLMTeam(PipelineOrchestrator):
+class LLMTeam(_LLMTeam):
     """
-    A team of AI agents working together.
+    Deprecated. Use llmteam.team.LLMTeam instead.
 
-    This is the recommended class name as of v2.0.0.
-    Formerly known as PipelineOrchestrator/Pipeline.
-
-    Example:
-        team = LLMTeam(
-            team_id="content_creation",
-            strategy=RuleBasedStrategy(),
-        )
-
-        team.register_agent("writer", writer_agent)
-        team.register_agent("editor", editor_agent)
-
-        result = await team.orchestrate("run_123", input_data)
-    """
-
-    def __init__(
-        self,
-        team_id: str,
-        strategy: Optional[OrchestrationStrategy] = None,
-        enable_process_mining: bool = True,
-    ):
-        """
-        Initialize LLMTeam.
-
-        Args:
-            team_id: Unique identifier for this team (maps to pipeline_id)
-            strategy: Orchestration strategy (defaults to RuleBasedStrategy)
-            enable_process_mining: Whether to enable process mining
-        """
-        super().__init__(
-            pipeline_id=team_id,
-            strategy=strategy,
-            enable_process_mining=enable_process_mining,
-        )
-
-    @property
-    def team_id(self) -> str:
-        """Get the team ID (alias for pipeline_id)."""
-        return self.pipeline_id
-
-
-# Alias for semantic naming
-TeamOrchestrator = LLMTeam
-
-
-class Pipeline(LLMTeam):
-    """
-    Deprecated. Use LLMTeam instead.
-
-    This class is provided for backward compatibility only.
+    This wrapper exists only for backwards compatibility and will be
+    removed in v5.0.0.
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
         warnings.warn(
-            "Pipeline is deprecated, use LLMTeam instead. "
-            "Pipeline will be removed in v3.0.0.",
+            "Importing LLMTeam from llmteam.compat is deprecated. "
+            "Use 'from llmteam import LLMTeam' instead. "
+            "This compatibility layer will be removed in v5.0.0.",
             DeprecationWarning,
             stacklevel=2,
         )
-        # Handle old 'pipeline_id' kwarg -> 'team_id'
-        if "pipeline_id" in kwargs and "team_id" not in kwargs:
-            kwargs["team_id"] = kwargs.pop("pipeline_id")
         super().__init__(*args, **kwargs)
 
 
-def _create_deprecated_orchestrator(*args: Any, **kwargs: Any) -> PipelineOrchestrator:
+class LLMGroup(_LLMGroup):
     """
-    Factory function that creates PipelineOrchestrator with deprecation warning.
+    Deprecated. Use llmteam.team.LLMGroup instead.
+    """
 
-    Use TeamOrchestrator or LLMTeam instead.
+    def __init__(self, *args: Any, **kwargs: Any):
+        warnings.warn(
+            "Importing LLMGroup from llmteam.compat is deprecated. "
+            "Use 'from llmteam import LLMGroup' instead. "
+            "This compatibility layer will be removed in v5.0.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
+
+
+# Legacy aliases (all deprecated)
+TeamOrchestrator = LLMTeam
+Pipeline = LLMTeam
+PipelineOrchestrator = LLMTeam
+
+
+# Stub for old OrchestrationStrategy
+class OrchestrationStrategy:
     """
-    warnings.warn(
-        "PipelineOrchestrator is deprecated, use TeamOrchestrator or LLMTeam instead. "
-        "PipelineOrchestrator deprecation warnings will be enabled in v2.1.0.",
-        PendingDeprecationWarning,
-        stacklevel=2,
-    )
-    return PipelineOrchestrator(*args, **kwargs)
+    Deprecated. Orchestration is now handled via the 'flow' parameter.
+
+    In v4.0.0, orchestration strategies are replaced by:
+    - flow="sequential" (default)
+    - flow="a -> b -> c" (string syntax)
+    - flow={"edges": [...]} (DAG)
+    - orchestration=True (adds orchestrator agent)
+    """
+
+    def __init__(self):
+        warnings.warn(
+            "OrchestrationStrategy is deprecated. "
+            "Use LLMTeam(flow=...) parameter instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+
+__all__ = [
+    "LLMTeam",
+    "LLMGroup",
+    "TeamOrchestrator",
+    "Pipeline",
+    "PipelineOrchestrator",
+    "OrchestrationStrategy",
+]

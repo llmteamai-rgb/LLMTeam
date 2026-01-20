@@ -1,42 +1,16 @@
 """
-Orchestration roles for llmteam.
+Legacy roles module for llmteam.
 
-This module provides orchestration capabilities for pipeline and group management:
-- Orchestration strategies (rule-based, LLM-based)
-- Process mining for workflow analysis
-- Pipeline orchestrators
-- Group orchestrators
+DEPRECATED: This module is kept for backward compatibility only.
 
-Quick Start:
-    from llmteam.roles import (
-        PipelineOrchestrator,
-        RuleBasedStrategy,
-        GroupOrchestrator,
-    )
-
-    # Create pipeline orchestrator
-    orchestrator = PipelineOrchestrator(
-        pipeline_id="my_pipeline",
-        strategy=RuleBasedStrategy(),
-        enable_process_mining=True,
-    )
-
-    # Execute
-    result = await orchestrator.orchestrate("run_1", input_data)
-
-    # Get metrics
-    metrics = orchestrator.get_process_metrics()
+Use the new locations instead:
+    - llmteam.mining: ProcessMiningEngine, ProcessEvent, ProcessMetrics
+    - llmteam.contract: TeamContract, ContractValidationResult
+    - llmteam.escalation: EscalationLevel, Escalation, etc.
+    - llmteam.team: LLMTeam, LLMGroup (replaces PipelineOrchestrator, GroupOrchestrator)
 """
 
-from llmteam.roles.orchestration import (
-    OrchestratorRole,
-    OrchestrationDecision,
-    OrchestrationContext,
-    OrchestrationStrategy,
-    RuleBasedStrategy,
-    LLMBasedStrategy,
-)
-
+# Process mining (deprecated, use llmteam.mining)
 from llmteam.roles.process_mining import (
     ProcessEvent,
     ProcessMetrics,
@@ -44,68 +18,21 @@ from llmteam.roles.process_mining import (
     ProcessMiningEngine,
 )
 
-from llmteam.roles.pipeline_orch import (
-    PipelineOrchestrator,
-)
-
-from llmteam.roles.group_orch import (
-    GroupDecisionType,
-    GroupOrchestrationDecision,
-    PipelineStatus,
-    GroupOrchestrationStrategy,
-    LoadBalancingStrategy,
-    ContentBasedRoutingStrategy,
-    ParallelFanOutStrategy,
-    GroupOrchestrator,
-    # v2.3.0: Escalation
-    EscalationLevel,
-    Escalation,
-    EscalationAction,
-    EscalationDecision,
-)
-
+# Team contract (deprecated, use llmteam.contract)
 from llmteam.roles.contract import (
     TeamContract,
-    ValidationResult,
+    ContractValidationResult,
     ContractValidationError,
 )
 
 __all__ = [
-    # Orchestration
-    "OrchestratorRole",
-    "OrchestrationDecision",
-    "OrchestrationContext",
-    "OrchestrationStrategy",
-    "RuleBasedStrategy",
-    "LLMBasedStrategy",
-
-    # Process Mining
+    # Process Mining (deprecated)
     "ProcessEvent",
     "ProcessMetrics",
     "ProcessModel",
     "ProcessMiningEngine",
-
-    # Pipeline Orchestrator
-    "PipelineOrchestrator",
-
-    # Group Orchestrator
-    "GroupDecisionType",
-    "GroupOrchestrationDecision",
-    "PipelineStatus",
-    "GroupOrchestrationStrategy",
-    "LoadBalancingStrategy",
-    "ContentBasedRoutingStrategy",
-    "ParallelFanOutStrategy",
-    "GroupOrchestrator",
-
-    # Escalation (v2.3.0)
-    "EscalationLevel",
-    "Escalation",
-    "EscalationAction",
-    "EscalationDecision",
-
-    # Team Contract (v2.3.0)
+    # Team Contract (deprecated)
     "TeamContract",
-    "ValidationResult",
+    "ContractValidationResult",
     "ContractValidationError",
 ]

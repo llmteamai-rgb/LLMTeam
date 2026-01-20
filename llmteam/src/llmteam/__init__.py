@@ -4,7 +4,19 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 2.3.0 (TeamContract, TeamHandler, SecureBus, Escalation)
+Version: 4.1.0 (Orchestrator Architecture Refactoring)
+    - New: TeamOrchestrator as separate supervisor (not agent)
+    - New: OrchestratorMode (SUPERVISOR, REPORTER, ROUTER, RECOVERY)
+    - New: AgentReport for automatic agent reporting
+    - New: ROUTER mode enables orchestrator to select agents
+    - New: RunResult.report and RunResult.summary
+    - Fixed: orchestration=True now properly routes to selected agents
+
+Version: 4.0.0 (Agent Architecture Refactoring)
+    - New: Typed agents (LLMAgent, RAGAgent, KAGAgent)
+    - New: AgentFactory for creating agents
+    - New: LLMTeam uses SegmentRunner internally
+    - New: LLMGroup for multi-team coordination
 
 License Tiers:
     - COMMUNITY (free): Basic features, memory stores
@@ -12,18 +24,21 @@ License Tiers:
     - ENTERPRISE (custom): Multi-tenant, Audit trail, SSO
 
 Quick Start:
-    import llmteam
+    from llmteam import LLMTeam
 
-    # Check tier
-    print(llmteam.get_tier())  # LicenseTier.COMMUNITY
-
-    # Activate license
-    llmteam.activate("LLMT-PRO-XXXX-20261231")
+    team = LLMTeam(
+        team_id="content",
+        agents=[
+            {"type": "rag", "role": "retriever", "collection": "docs"},
+            {"type": "llm", "role": "writer", "prompt": "Write about: {query}"}
+        ]
+    )
+    result = await team.run({"query": "AI trends"})
 
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "2.3.0"
+__version__ = "4.1.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -97,31 +112,19 @@ from llmteam.execution import (
     PipelineExecutor,
 )
 
-# v1.8.0: Orchestration Roles
-from llmteam.roles import (
-    # Orchestration
-    OrchestratorRole,
-    OrchestrationDecision,
-    OrchestrationContext,
-    OrchestrationStrategy,
-    RuleBasedStrategy,
-    LLMBasedStrategy,
-    # Process Mining
+# v3.0.0: Process Mining (new location)
+from llmteam.mining import (
     ProcessEvent,
     ProcessMetrics,
     ProcessModel,
     ProcessMiningEngine,
-    # Pipeline Orchestrator
-    PipelineOrchestrator,
-    # Group Orchestrator
-    GroupDecisionType,
-    GroupOrchestrationDecision,
-    PipelineStatus,
-    GroupOrchestrationStrategy,
-    LoadBalancingStrategy,
-    ContentBasedRoutingStrategy,
-    ParallelFanOutStrategy,
-    GroupOrchestrator,
+)
+
+# v3.0.0: Team Contract (new location)
+from llmteam.contract import (
+    TeamContract,
+    ContractValidationResult,
+    ContractValidationError,
 )
 
 # v1.9.0: External Actions
@@ -232,11 +235,73 @@ from llmteam.patterns import (
     CriticLoop,
 )
 
-# v2.0.0: New naming (LLMTeam) + Compatibility aliases
-from llmteam.compat import (
-    LLMTeam,
+# v4.0.0: New Agent Architecture
+from llmteam.agents import (
+    # Types
+    AgentType,
+    AgentMode,
+    AgentStatus,
+    # Config
+    AgentConfig,
+    LLMAgentConfig,
+    RAGAgentConfig,
+    KAGAgentConfig,
+    # State & Result
+    AgentState,
+    AgentResult,
+    RAGResult,
+    KAGResult,
+    # Factory
+    AgentFactory,
+    # Presets
+    create_orchestrator_config,
+    create_group_orchestrator_config,
+    create_summarizer_config,
+    create_reviewer_config,
+    create_rag_config,
+    create_kag_config,
+    # v4.1.0: Orchestrator
+    AgentReport,
     TeamOrchestrator,
-    Pipeline,  # Deprecated, use LLMTeam
+    OrchestratorMode,
+    OrchestratorScope,
+    OrchestratorConfig,
+    RoutingDecision,
+    RecoveryDecision,
+    RecoveryAction,
+)
+
+# v4.0.0: LLMTeam and LLMGroup
+from llmteam.team import (
+    LLMTeam,
+    LLMGroup,
+    RunResult,
+    RunStatus,
+    ContextMode,
+    TeamResult,
+    TeamSnapshot,
+    TeamConfig,
+)
+
+# v3.0.0: Registries
+from llmteam.registry import (
+    BaseRegistry,
+    TeamRegistry,
+)
+
+# v3.0.0: Escalation subsystem
+from llmteam.escalation import (
+    EscalationLevel,
+    EscalationAction,
+    Escalation,
+    EscalationDecision,
+    EscalationRecord,
+    EscalationHandler,
+    DefaultHandler,
+    ThresholdHandler,
+    FunctionHandler,
+    ChainHandler,
+    LevelFilterHandler,
 )
 
 # v2.0.0: Three-Level Ports (RFC #7)
@@ -348,33 +413,6 @@ __all__ = [
     "ExecutionStats",
     "PipelineExecutor",
 
-    # Orchestration (v1.8.0)
-    "OrchestratorRole",
-    "OrchestrationDecision",
-    "OrchestrationContext",
-    "OrchestrationStrategy",
-    "RuleBasedStrategy",
-    "LLMBasedStrategy",
-
-    # Process Mining (v1.8.0)
-    "ProcessEvent",
-    "ProcessMetrics",
-    "ProcessModel",
-    "ProcessMiningEngine",
-
-    # Pipeline Orchestrator (v1.8.0)
-    "PipelineOrchestrator",
-
-    # Group Orchestrator (v1.8.0)
-    "GroupDecisionType",
-    "GroupOrchestrationDecision",
-    "PipelineStatus",
-    "GroupOrchestrationStrategy",
-    "LoadBalancingStrategy",
-    "ContentBasedRoutingStrategy",
-    "ParallelFanOutStrategy",
-    "GroupOrchestrator",
-
     # External Actions (v1.9.0)
     "ActionType",
     "ActionStatus",
@@ -464,10 +502,73 @@ __all__ = [
     "CriticLoopResult",
     "CriticLoop",
 
-    # Team (v2.0.0 naming)
-    "LLMTeam",
+    # v4.0.0: Agent Architecture
+    "AgentType",
+    "AgentMode",
+    "AgentStatus",
+    "AgentConfig",
+    "LLMAgentConfig",
+    "RAGAgentConfig",
+    "KAGAgentConfig",
+    "AgentState",
+    "AgentResult",
+    "RAGResult",
+    "KAGResult",
+    "AgentFactory",
+    "create_orchestrator_config",
+    "create_group_orchestrator_config",
+    "create_summarizer_config",
+    "create_reviewer_config",
+    "create_rag_config",
+    "create_kag_config",
+
+    # v4.1.0: Orchestrator
+    "AgentReport",
     "TeamOrchestrator",
-    "Pipeline",  # Deprecated
+    "OrchestratorMode",
+    "OrchestratorScope",
+    "OrchestratorConfig",
+    "RoutingDecision",
+    "RecoveryDecision",
+    "RecoveryAction",
+
+    # v4.0.0: Team
+    "LLMTeam",
+    "LLMGroup",
+    "RunResult",
+    "RunStatus",
+    "ContextMode",
+    "TeamResult",
+    "TeamSnapshot",
+    "TeamConfig",
+
+    # Registries (v3.0.0)
+    "BaseRegistry",
+    "TeamRegistry",
+
+    # Escalation (v3.0.0)
+    "EscalationLevel",
+    "EscalationAction",
+    "Escalation",
+    "EscalationDecision",
+    "EscalationRecord",
+    "EscalationHandler",
+    "DefaultHandler",
+    "ThresholdHandler",
+    "FunctionHandler",
+    "ChainHandler",
+    "LevelFilterHandler",
+
+    # Contract (v3.0.0)
+    "TeamContract",
+    "ContractValidationResult",
+    "ContractValidationError",
+
+    # Mining (v3.0.0)
+    "ProcessEvent",
+    "ProcessMetrics",
+    "ProcessModel",
+    "ProcessMiningEngine",
 
     # Three-Level Ports (v2.0.0)
     "PortLevel",

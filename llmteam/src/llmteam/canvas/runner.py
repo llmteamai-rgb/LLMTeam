@@ -126,6 +126,7 @@ class SegmentResult:
 
     # Output
     output: dict[str, Any] = field(default_factory=dict)
+    step_outputs: dict[str, Any] = field(default_factory=dict)  # All step outputs
 
     # Error (if failed)
     error: Optional[ErrorInfo] = None
@@ -139,6 +140,7 @@ class SegmentResult:
     steps_completed: int = 0
     steps_total: int = 0
     current_step: Optional[str] = None
+    completed_steps: list[str] = field(default_factory=list)  # List of executed step IDs
 
     # Resume info
     resumed_from: Optional[str] = None  # snapshot_id if resumed
@@ -294,6 +296,8 @@ class SegmentRunner:
             # Success
             result.status = SegmentStatus.COMPLETED
             result.output = output
+            result.step_outputs = dict(run_state.step_outputs)
+            result.completed_steps = list(run_state.completed_steps)
             result.completed_at = datetime.now()
             result.duration_ms = int(
                 (result.completed_at - result.started_at).total_seconds() * 1000
@@ -303,6 +307,8 @@ class SegmentRunner:
 
         except asyncio.CancelledError:
             result.status = SegmentStatus.CANCELLED
+            result.step_outputs = dict(run_state.step_outputs)
+            result.completed_steps = list(run_state.completed_steps)
             result.completed_at = datetime.now()
 
             if config.on_cancel:
@@ -540,6 +546,8 @@ class SegmentRunner:
             # Success
             result.status = SegmentStatus.COMPLETED
             result.output = output
+            result.step_outputs = dict(run_state.step_outputs)
+            result.completed_steps = list(run_state.completed_steps)
             result.completed_at = datetime.now()
             result.duration_ms = int(
                 (result.completed_at - result.started_at).total_seconds() * 1000
@@ -553,6 +561,8 @@ class SegmentRunner:
                 result.status = SegmentStatus.PAUSED
             else:
                 result.status = SegmentStatus.CANCELLED
+            result.step_outputs = dict(run_state.step_outputs)
+            result.completed_steps = list(run_state.completed_steps)
             result.completed_at = datetime.now()
 
             if result.status == SegmentStatus.CANCELLED and config.on_cancel:
@@ -560,6 +570,8 @@ class SegmentRunner:
 
         except asyncio.TimeoutError:
             result.status = SegmentStatus.TIMEOUT
+            result.step_outputs = dict(run_state.step_outputs)
+            result.completed_steps = list(run_state.completed_steps)
             result.completed_at = datetime.now()
             result.error = ErrorInfo(
                 error_type="TimeoutError",

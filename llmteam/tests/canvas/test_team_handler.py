@@ -1,13 +1,14 @@
-"""Tests for TeamHandler."""
+"""Tests for TeamHandler (v3.0.0 API)."""
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
 from llmteam.canvas.handlers.team_handler import TeamHandler, TeamNotFoundError
+from llmteam.team import TeamResult
 
 
 class TestTeamHandler:
-    """Tests for TeamHandler."""
+    """Tests for TeamHandler with v3.0.0 LLMTeam API."""
 
     @pytest.fixture
     def handler(self):
@@ -16,29 +17,31 @@ class TestTeamHandler:
 
     @pytest.fixture
     def mock_team(self):
-        """Create a mock team."""
-        team = AsyncMock()
-        team.orchestrate = AsyncMock(return_value={"result": "success", "score": 0.95})
+        """Create a mock team with v3.0.0 API."""
+        team = MagicMock()
+        team.run = AsyncMock(return_value=TeamResult(
+            output={"result": "success", "score": 0.95},
+            success=True,
+            iterations=1,
+            agents_called=["agent1"],
+        ))
         return team
 
     @pytest.fixture
     def mock_runtime(self, mock_team):
         """Create a mock runtime with team registry."""
         runtime = MagicMock()
-        runtime._teams = {"analysis_team": mock_team}
-        # get_team returns the team when called with the right ref
         runtime.get_team = MagicMock(return_value=mock_team)
-        # Remove get_resource so it falls through to _teams check
-        del runtime.get_resource
         return runtime
 
     @pytest.fixture
-    def mock_ctx(self, mock_runtime):
-        """Create a mock step context."""
+    def mock_ctx(self, mock_runtime, mock_team):
+        """Create a mock step context with v3.0.0 API."""
         ctx = MagicMock()
         ctx.step_id = "team_step_1"
         ctx.instance_id = "run_123"
         ctx.runtime = mock_runtime
+        ctx.get_team = MagicMock(return_value=mock_team)  # v3.0.0 uses ctx.get_team()
         return ctx
 
     async def test_execute_team_basic(self, handler, mock_ctx, mock_team):
@@ -50,7 +53,9 @@ class TestTeamHandler:
 
         assert "output" in result
         assert result["output"]["result"] == "success"
-        mock_team.orchestrate.assert_called_once()
+        mock_team.run.assert_called_once()
+        # v3.0.0 returns team_metadata
+        assert "team_metadata" in result
 
     async def test_execute_team_with_input_mapping(self, handler, mock_ctx, mock_team):
         """Test team execution with input mapping."""
@@ -65,8 +70,8 @@ class TestTeamHandler:
         result = await handler(mock_ctx, config, input_data)
 
         # Verify the mapped input was passed to team
-        call_args = mock_team.orchestrate.call_args
-        mapped_input = call_args[0][1]  # Second positional arg
+        call_args = mock_team.run.call_args
+        mapped_input = call_args[0][0]  # First positional arg in v3.0.0
         assert "text" in mapped_input
         assert mapped_input["text"] == "test query"
 
@@ -94,13 +99,13 @@ class TestTeamHandler:
         """Test error when team is not found."""
         # Create a ctx without the team
         runtime = MagicMock()
-        runtime._teams = {}
         runtime.get_team = MagicMock(return_value=None)
-        runtime.get_resource = MagicMock(return_value=None)
+
         ctx = MagicMock()
         ctx.step_id = "team_step_1"
         ctx.instance_id = "run_123"
         ctx.runtime = runtime
+        ctx.get_team = MagicMock(return_value=None)  # v3.0.0 uses ctx.get_team()
 
         config = {"team_ref": "nonexistent_team"}
         input_data = {"query": "test"}
@@ -123,18 +128,17 @@ class TestTeamHandler:
     async def test_team_execution_error(self, handler):
         """Test handling of team execution error."""
         # Create a mock team that raises an error
-        failing_team = AsyncMock()
-        failing_team.orchestrate = AsyncMock(side_effect=RuntimeError("Team failed"))
+        failing_team = MagicMock()
+        failing_team.run = AsyncMock(side_effect=RuntimeError("Team failed"))
 
         runtime = MagicMock()
-        runtime._teams = {"analysis_team": failing_team}
         runtime.get_team = MagicMock(return_value=failing_team)
-        del runtime.get_resource
 
         ctx = MagicMock()
         ctx.step_id = "team_step_1"
         ctx.instance_id = "run_123"
         ctx.runtime = runtime
+        ctx.get_team = MagicMock(return_value=failing_team)  # v3.0.0
 
         config = {"team_ref": "analysis_team"}
         input_data = {"query": "test"}
@@ -143,6 +147,35 @@ class TestTeamHandler:
             await handler(ctx, config, input_data)
 
         assert "Team failed" in str(exc_info.value)
+
+    async def test_team_execution_failure_result(self, handler):
+        """Test handling when team returns a failure result."""
+        # Create a mock team that returns a failure
+        failing_team = MagicMock()
+        failing_team.run = AsyncMock(return_value=TeamResult(
+            output={},
+            success=False,
+            iterations=1,
+            agents_called=[],
+            error="Validation failed",
+        ))
+
+        runtime = MagicMock()
+        runtime.get_team = MagicMock(return_value=failing_team)
+
+        ctx = MagicMock()
+        ctx.step_id = "team_step_1"
+        ctx.instance_id = "run_123"
+        ctx.runtime = runtime
+        ctx.get_team = MagicMock(return_value=failing_team)
+
+        config = {"team_ref": "analysis_team"}
+        input_data = {"query": "test"}
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await handler(ctx, config, input_data)
+
+        assert "Validation failed" in str(exc_info.value)
 
 
 class TestTeamHandlerInputMapping:

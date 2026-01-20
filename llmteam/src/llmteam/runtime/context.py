@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from llmteam.ratelimit import RateLimitedExecutor
     from llmteam.audit import AuditTrail
     from llmteam.transport import SecureBus
+    from llmteam.team import LLMTeam
+    from llmteam.registry import TeamRegistry
 
 
 logger = get_logger(__name__)
@@ -68,6 +70,9 @@ class RuntimeContext:
 
     # === Transport (v2.3.0) ===
     bus: Optional["SecureBus"] = None
+
+    # === Teams (v3.0.0) ===
+    teams: Optional["TeamRegistry"] = None
 
     # === Event Hooks ===
     on_step_start: Optional[Callable[[Any], None]] = None
@@ -135,6 +140,40 @@ class RuntimeContext:
             )
             raise
 
+    def resolve_team(self, team_ref: str) -> "LLMTeam":
+        """Resolve team by reference."""
+        if not self.teams:
+            logger.error(
+                f"Team resolution failed: '{team_ref}'. "
+                f"No TeamRegistry configured. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise ResourceNotFoundError("TeamRegistry not configured")
+
+        team = self.teams.get_optional(team_ref)
+        if team is None:
+            logger.error(
+                f"Team resolution failed: '{team_ref}' not found. "
+                f"Context: tenant={self.tenant_id}, run_id={self.run_id}"
+            )
+            raise ResourceNotFoundError(f"Team '{team_ref}' not found")
+
+        return team
+
+    def get_team(self, team_ref: str) -> Optional["LLMTeam"]:
+        """Get team by reference (returns None if not found)."""
+        if not self.teams:
+            return None
+        return self.teams.get_optional(team_ref)
+
+    def register_team(self, team: "LLMTeam") -> None:
+        """Register a team with the runtime."""
+        if self.teams is None:
+            from llmteam.registry import TeamRegistry
+            self.teams = TeamRegistry()
+        self.teams.register_team(team)
+        team.runtime = self
+
     def child_context(self, step_id: str) -> "StepContext":
         """Create child context for a step."""
         return StepContext(
@@ -161,6 +200,7 @@ class RuntimeContext:
             rate_limiter=overrides.get("rate_limiter", self.rate_limiter),
             audit_trail=overrides.get("audit_trail", self.audit_trail),
             bus=overrides.get("bus", self.bus),
+            teams=overrides.get("teams", self.teams),
             on_step_start=overrides.get("on_step_start", self.on_step_start),
             on_step_complete=overrides.get("on_step_complete", self.on_step_complete),
             on_step_error=overrides.get("on_step_error", self.on_step_error),
@@ -214,6 +254,10 @@ class StepContext:
     def get_bus(self) -> Optional["SecureBus"]:
         """Get SecureBus for event publishing."""
         return self.runtime.bus
+
+    def get_team(self, team_ref: str) -> Optional["LLMTeam"]:
+        """Get team by reference."""
+        return self.runtime.get_team(team_ref)
 
     # === Step-local state ===
 
@@ -278,12 +322,26 @@ class RuntimeContextFactory:
         clients: Optional[ClientRegistry] = None,
         llms: Optional[LLMRegistry] = None,
         secrets: Optional[SecretsProvider] = None,
+        bus: Optional["SecureBus"] = None,
+        teams: Optional["TeamRegistry"] = None,
     ):
         self.stores = stores or StoreRegistry()
         self.clients = clients or ClientRegistry()
         self.llms = llms or LLMRegistry()
         self.secrets = secrets
+        self.bus = bus
+        self.teams = teams
         logger.debug("RuntimeContextFactory initialized")
+
+    def set_secrets_provider(self, secrets: SecretsProvider) -> None:
+        """Set the secrets provider."""
+        self.secrets = secrets
+        logger.debug("SecretsProvider configured")
+
+    def set_bus(self, bus: SecureBus) -> None:
+        """Set the secure bus."""
+        self.bus = bus
+        logger.debug("SecureBus configured")
 
     def register_store(self, name: str, store: Store) -> None:
         """Register a store."""
@@ -297,10 +355,12 @@ class RuntimeContextFactory:
         """Register an LLM provider."""
         self.llms.register(name, llm)
 
-    def set_secrets_provider(self, secrets: SecretsProvider) -> None:
-        """Set the secrets provider."""
-        self.secrets = secrets
-        logger.debug("SecretsProvider configured")
+    def register_team(self, team: "LLMTeam") -> None:
+        """Register a team."""
+        if self.teams is None:
+            from llmteam.registry import TeamRegistry
+            self.teams = TeamRegistry()
+        self.teams.register_team(team)
 
     def create_runtime(
         self,
@@ -341,5 +401,7 @@ class RuntimeContextFactory:
             clients=self.clients,
             llms=self.llms,
             secrets=self.secrets,
+            bus=self.bus,
+            teams=self.teams,
             **kwargs,
         )

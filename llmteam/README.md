@@ -1,307 +1,335 @@
 # llmteam-ai
 
-Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with security, orchestration, and workflow capabilities.
+Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 
 [![PyPI version](https://badge.fury.io/py/llmteam-ai.svg)](https://pypi.org/project/llmteam-ai/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Current Version: v2.0.0 — Canvas Integration
+## Current Version: v4.0.0 — Typed Agent Architecture
 
-### New Features in v2.0.0
+### Key Features
 
-- **RuntimeContext Injection** — Unified access point for enterprise resources (stores, clients, LLMs, secrets) with dependency injection
-- **Worktrail Events** — Real-time event streaming for Canvas UI integration with EventEmitter and EventStore
-- **Segment JSON Contract** — Declarative workflow definition with SegmentDefinition, StepDefinition, EdgeDefinition
-- **Step Catalog API** — Registry of 7 built-in step types (llm_agent, transform, human_task, conditional, parallel, loop, api_call)
-- **Segment Runner** — Async execution engine for canvas segments with topological ordering and port-based data flow
+- **Three Agent Types** — LLM, RAG, KAG (config-driven, no custom agent classes)
+- **Simple API** — Create agents via dict, no boilerplate
+- **SegmentRunner Integration** — LLMTeam uses Canvas runtime internally
+- **LLMGroup** — Multi-team coordination with automatic routing
+- **Presets** — Ready-to-use orchestrator, summarizer, reviewer configs
 
 ## Installation
 
 ```bash
 pip install llmteam-ai
 
-# With PostgreSQL support
-pip install llmteam-ai[postgres]
-
-# With API server (FastAPI)
-pip install llmteam-ai[api]
-
-# With all optional dependencies
-pip install llmteam-ai[all]
+# With optional dependencies
+pip install llmteam-ai[api]       # FastAPI server
+pip install llmteam-ai[postgres]  # PostgreSQL stores
+pip install llmteam-ai[all]       # Everything
 ```
 
 ## Quick Start
 
-### Define and Run a Segment
+### Create a Team with Agents
 
 ```python
-from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, SegmentRunner
-from llmteam.runtime import RuntimeContextFactory
+from llmteam import LLMTeam
 
-# Create runtime context
-factory = RuntimeContextFactory()
-runtime = factory.create_runtime(
-    tenant_id="acme",
-    instance_id="workflow-1",
+# Simple: dict-based config
+team = LLMTeam(
+    team_id="content",
+    agents=[
+        {"type": "rag", "role": "retriever", "collection": "docs", "top_k": 5},
+        {"type": "llm", "role": "writer", "prompt": "Based on context, write about: {query}"},
+    ]
 )
 
-# Define segment
-segment = SegmentDefinition(
-    segment_id="example",
-    name="Example Workflow",
-    steps=[
-        StepDefinition(step_id="start", step_type="transform", config={"expression": "input"}),
-        StepDefinition(step_id="process", step_type="llm_agent", config={"model": "gpt-4"}),
-        StepDefinition(step_id="end", step_type="transform", config={"expression": "output"}),
-    ],
-    edges=[
-        EdgeDefinition(source_step="start", source_port="output", target_step="process", target_port="input"),
-        EdgeDefinition(source_step="process", source_port="output", target_step="end", target_port="input"),
-    ],
-)
-
-# Run segment
-runner = SegmentRunner()
-result = await runner.run(
-    segment=segment,
-    input_data={"query": "Hello"},
-    runtime=runtime,
-)
-print(result.status)  # SegmentStatus.COMPLETED
+# Run
+result = await team.run({"query": "AI trends in 2026"})
+print(result.output)
 ```
 
-### CLI Usage
-
-```bash
-# Validate segment definition
-llmteam validate segment.json
-
-# Run segment
-llmteam run segment.json --input-json '{"query": "Hello"}'
-
-# List available step types
-llmteam catalog
-
-# Start API server
-llmteam serve --port 8000
-```
-
-## Features
-
-### v2.0.0 — Canvas Integration
-
-#### Runtime Context
-
-Inject runtime resources (stores, clients, secrets, LLMs) into step execution.
+### Add Agents Dynamically
 
 ```python
-from llmteam.runtime import RuntimeContextFactory
+team = LLMTeam(team_id="support")
 
-# Create runtime factory with registries
-factory = RuntimeContextFactory()
-factory.register_store("redis", redis_store)
-factory.register_client("http", http_client)
-factory.set_secrets_provider(vault_provider)
+# Method 1: Dict
+team.add_agent({
+    "type": "llm",
+    "role": "triage",
+    "prompt": "Classify this query: {query}",
+    "model": "gpt-4o-mini",
+})
 
-# Create runtime for workflow instance
-runtime = factory.create_runtime(
-    tenant_id="acme",
-    instance_id="workflow_123",
+# Method 2: Shortcut
+team.add_llm_agent(
+    role="resolver",
+    prompt="Resolve the issue: {issue}",
+    temperature=0.3,
 )
 
-# Create step context for step execution
-step_ctx = runtime.child_context("process_data")
-
-# Access resources in step handler
-store = step_ctx.get_store("redis")
-secret = await step_ctx.get_secret("api_key")
-llm = step_ctx.get_llm("openai")
+# Method 3: RAG/KAG
+team.add_rag_agent(role="knowledge", collection="faq", top_k=3)
+team.add_kag_agent(role="graph", max_hops=2)
 ```
 
-#### Worktrail Events
-
-Emit events for Canvas UI integration.
+### Use Presets
 
 ```python
-from llmteam.events import EventEmitter, EventType, MemoryEventStore
+from llmteam.agents import create_orchestrator_config, create_summarizer_config
 
-store = MemoryEventStore()
-emitter = EventEmitter(store)
+# Orchestrator for adaptive flow
+team.add_agent(create_orchestrator_config(
+    available_agents=["writer", "editor", "reviewer"],
+    model="gpt-4o-mini",
+))
 
-# Emit step events
-await emitter.emit_step_started(run_id, step_id, input_data)
-await emitter.emit_step_completed(run_id, step_id, output_data, duration_ms)
-await emitter.emit_step_failed(run_id, step_id, error_info)
-
-# Query events
-events = await store.query(run_id=run_id, event_types=[EventType.STEP_COMPLETED])
+# Summarizer preset
+team.add_agent(create_summarizer_config(role="summarizer"))
 ```
 
-#### Segment Definition (JSON Contract)
-
-Define workflow segments with steps and edges.
+### Multi-Team Groups
 
 ```python
-from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, PortDefinition
+from llmteam import LLMTeam
 
-segment = SegmentDefinition(
-    segment_id="data_pipeline",
-    name="Data Processing Pipeline",
-    version="1.0.0",
-    steps=[
-        StepDefinition(
-            step_id="fetch",
-            step_type="api_call",
-            config={"url": "https://api.example.com/data", "method": "GET"},
-            outputs=[PortDefinition(port_id="output", data_type="json")],
-        ),
-        StepDefinition(
-            step_id="transform",
-            step_type="transform",
-            config={"expression": "data.items"},
-            inputs=[PortDefinition(port_id="input", data_type="json")],
-            outputs=[PortDefinition(port_id="output", data_type="json")],
-        ),
-        StepDefinition(
-            step_id="analyze",
-            step_type="llm_agent",
-            config={"model": "gpt-4", "system_prompt": "Analyze the data"},
-            inputs=[PortDefinition(port_id="input", data_type="json")],
-        ),
-    ],
-    edges=[
-        EdgeDefinition(source_step="fetch", source_port="output", target_step="transform", target_port="input"),
-        EdgeDefinition(source_step="transform", source_port="output", target_step="analyze", target_port="input"),
-    ],
-)
-```
+research_team = LLMTeam(team_id="research", agents=[...])
+writing_team = LLMTeam(team_id="writing", agents=[...])
 
-#### Step Catalog
-
-Registry of available step types with metadata.
-
-```python
-from llmteam.canvas import StepCatalog, StepCategory
-
-catalog = StepCatalog.instance()
-
-# Get all step types
-all_types = catalog.list_all()
-
-# Get types by category
-ai_types = catalog.list_by_category(StepCategory.AI)
-
-# Get step metadata
-llm_agent = catalog.get("llm_agent")
-print(llm_agent.display_name)  # "LLM Agent"
-```
-
-Built-in step types:
-
-| Type | Category | Description |
-|------|----------|-------------|
-| `llm_agent` | AI | LLM-powered agent step |
-| `transform` | Data | Data transformation |
-| `human_task` | Human | Human approval/input |
-| `conditional` | Control | Conditional branching |
-| `parallel` | Control | Parallel execution |
-| `loop` | Control | Iterative processing |
-| `api_call` | Integration | External API calls |
-
-#### Segment Runner
-
-Execute workflow segments with handlers.
-
-```python
-from llmteam.canvas import SegmentRunner, RunConfig
-
-# Create runner
-runner = SegmentRunner()
-
-# Run segment
-result = await runner.run(
-    segment=segment,
-    input_data={"query": "Process this data"},
-    runtime=runtime_context,
-    config=RunConfig(timeout_seconds=300, max_retries=3),
+# Create group with leader
+group = research_team.create_group(
+    group_id="content_pipeline",
+    teams=[writing_team],
 )
 
-# Check result
-if result.status == SegmentStatus.COMPLETED:
-    print(result.outputs)
-elif result.status == SegmentStatus.FAILED:
-    print(result.error)
+result = await group.run({"topic": "Quantum Computing"})
 ```
 
-### Previous Versions
+### Execution Control
 
-#### v1.9.0 — Workflow Runtime
-- External Actions (API/webhook calls with retry)
-- Human-in-the-loop interaction (approval, chat, escalation)
-- Snapshot-based pause/resume for long-running workflows
+```python
+# Start
+result = await team.run({"query": "..."})
 
-#### v1.8.0 — Orchestration Intelligence
-- Hierarchical context propagation
-- Pipeline orchestration with smart routing
-- Process mining with XES export
-- License-based feature management
+# Pause and resume
+snapshot = await team.pause()
+# ... later ...
+result = await team.resume(snapshot)
 
-#### v1.7.0 — Security Foundation
-- Multi-tenant isolation with configurable limits
-- Compliance audit trail with SHA-256 chain integrity
-- Secure agent context with sealed data
-- Rate limiting with circuit breaker
-
-## Architecture
-
-```
-llmteam/
-├── runtime/          # Runtime context injection (v2.0.0)
-├── events/           # Worktrail events (v2.0.0)
-├── canvas/           # Canvas segment execution (v2.0.0)
-│   ├── models.py     # SegmentDefinition, StepDefinition, EdgeDefinition
-│   ├── catalog.py    # StepCatalog with 7 built-in types
-│   ├── runner.py     # SegmentRunner execution engine
-│   └── handlers.py   # HumanTaskHandler
-├── actions/          # External API/webhook calls (v1.9.0)
-├── human/            # Human-in-the-loop (v1.9.0)
-├── persistence/      # Snapshot pause/resume (v1.9.0)
-├── roles/            # Orchestration roles (v1.8.0)
-├── execution/        # Parallel pipeline execution (v1.8.0)
-├── licensing/        # License management (v1.8.0)
-├── tenancy/          # Multi-tenant isolation (v1.7.0)
-├── audit/            # Compliance audit trail (v1.7.0)
-├── context/          # Context security (v1.7.0)
-├── ratelimit/        # Rate limiting + circuit breaker (v1.7.0)
-├── cli/              # Command-line interface
-├── api/              # REST API with FastAPI
-└── observability/    # Structured logging
+# Cancel
+await team.cancel()
 ```
 
-## Key Principles
+## Agent Types
 
-### Security
+| Type | Purpose | Key Config |
+|------|---------|------------|
+| `llm` | Text generation | `prompt`, `model`, `temperature`, `max_tokens` |
+| `rag` | Vector retrieval | `collection`, `top_k`, `score_threshold` |
+| `kag` | Knowledge graph | `max_hops`, `max_entities` |
 
-1. **Horizontal Isolation**: Agents NEVER see each other's contexts
-2. **Vertical Visibility**: Orchestrators see only their child agents
-3. **Sealed Data**: Only the owning agent can access sealed fields
-4. **Tenant Isolation**: Complete data separation between tenants
-5. **Instance Namespacing**: Workflow instances isolated within tenant
+### LLM Agent Config
 
-### Canvas Integration
+```python
+{
+    "type": "llm",
+    "role": "writer",              # Required: unique ID
+    "prompt": "Write: {topic}",    # Required: prompt template
+    "model": "gpt-4o-mini",        # Default: gpt-4o-mini
+    "temperature": 0.7,            # Default: 0.7
+    "max_tokens": 1000,            # Default: 1000
+    "system_prompt": "You are...", # Optional
+    "use_context": True,           # Use RAG/KAG context
+    "output_format": "text",       # "text" | "json"
+}
+```
 
-1. **JSON Contract**: Segments defined as portable JSON
-2. **Step Catalog**: Extensible registry of step types
-3. **Event-Driven**: UI updates via Worktrail events
-4. **Resource Injection**: Runtime context provides stores, clients, secrets
+### RAG Agent Config
 
-## Links
+```python
+{
+    "type": "rag",
+    "role": "retriever",
+    "collection": "documents",     # Vector store collection
+    "top_k": 5,                    # Number of results
+    "score_threshold": 0.7,        # Minimum similarity
+    "mode": "native",              # "native" | "proxy"
+}
+```
 
-- [PyPI Package](https://pypi.org/project/llmteam-ai/)
-- [GitHub Repository](https://github.com/llmteamai-rgb/LLMTeam)
-- [Changelog](https://github.com/llmteamai-rgb/LLMTeam/blob/main/llmteam/CHANGELOG.md)
+### KAG Agent Config
+
+```python
+{
+    "type": "kag",
+    "role": "knowledge",
+    "max_hops": 2,                 # Graph traversal depth
+    "max_entities": 10,            # Max entities to return
+    "include_relations": True,     # Include relationships
+}
+```
+
+## Flow Definition
+
+```python
+# Sequential (default)
+team = LLMTeam(team_id="seq", flow="sequential")
+
+# String syntax
+team = LLMTeam(team_id="pipe", flow="retriever -> writer -> editor")
+
+# Parallel
+team = LLMTeam(team_id="par", flow="a, b -> c")  # a and b run parallel, then c
+
+# DAG with conditions
+team = LLMTeam(team_id="dag", flow={
+    "edges": [
+        {"from": "retriever", "to": "writer"},
+        {"from": "writer", "to": "reviewer"},
+        {"from": "reviewer", "to": "writer", "condition": "rejected"},
+        {"from": "reviewer", "to": "publisher", "condition": "approved"},
+    ]
+})
+
+# Adaptive (with orchestrator)
+team = LLMTeam(team_id="adaptive", orchestration=True)
+```
+
+## Context Modes
+
+```python
+from llmteam import LLMTeam, ContextMode
+
+# Shared context (default) - all agents see all results
+team = LLMTeam(team_id="shared", context_mode=ContextMode.SHARED)
+
+# Not shared - each agent gets only explicitly delivered context
+team = LLMTeam(team_id="isolated", context_mode=ContextMode.NOT_SHARED)
+```
+
+## License Tiers
+
+| Feature | Community | Professional | Enterprise |
+|---------|-----------|--------------|------------|
+| LLM/RAG/KAG agents | ✅ | ✅ | ✅ |
+| Memory stores | ✅ | ✅ | ✅ |
+| Canvas runner | ✅ | ✅ | ✅ |
+| Process mining | ❌ | ✅ | ✅ |
+| PostgreSQL stores | ❌ | ✅ | ✅ |
+| Human-in-the-loop | ❌ | ✅ | ✅ |
+| Multi-tenant | ❌ | ❌ | ✅ |
+| Audit trail | ❌ | ❌ | ✅ |
+| SSO/SAML | ❌ | ❌ | ✅ |
+
+## Migration from v3.x
+
+v4.0.0 is a **breaking change**. Key differences:
+
+| v3.x | v4.x |
+|------|------|
+| `class Agent` with `process()` | Dict config |
+| `team.register_agent(agent)` | `team.add_agent(config)` |
+| `TeamOrchestrator` class | `flow` parameter or `orchestration=True` |
+| Custom agent classes | External logic pattern |
+| `result.agents_invoked` | `result.agents_called` |
+
+### Migration Example
+
+```python
+# ═══════════════════════════════════════════
+# v3.x (old) - Custom agent class
+# ═══════════════════════════════════════════
+from llmteam import Agent, AgentState, AgentResult
+
+class WriterAgent(Agent):
+    async def process(self, state: AgentState) -> AgentResult:
+        query = state.data.get("query", "")
+        # Custom logic here
+        return AgentResult(output={"text": f"Article about {query}"})
+
+team = LLMTeam(team_id="content")
+team.register_agent(WriterAgent("writer"))
+
+# ═══════════════════════════════════════════
+# v4.x (new) - Dict config
+# ═══════════════════════════════════════════
+from llmteam import LLMTeam
+
+team = LLMTeam(
+    team_id="content",
+    agents=[
+        {"type": "llm", "role": "writer", "prompt": "Write article about: {query}"}
+    ]
+)
+
+# For custom logic, use external pattern:
+result = await team.run({"query": "AI"})
+processed = my_custom_function(result.output)
+```
+
+## API Reference
+
+### LLMTeam
+
+```python
+class LLMTeam:
+    def __init__(
+        self,
+        team_id: str,
+        agents: List[Dict] = None,
+        flow: Union[str, Dict] = "sequential",
+        model: str = "gpt-4o-mini",
+        context_mode: ContextMode = ContextMode.SHARED,
+        orchestration: bool = False,
+        timeout: int = None,
+    ): ...
+
+    def add_agent(self, config: Dict) -> BaseAgent: ...
+    def add_llm_agent(self, role: str, prompt: str, **kwargs) -> BaseAgent: ...
+    def add_rag_agent(self, role: str = "rag", **kwargs) -> BaseAgent: ...
+    def add_kag_agent(self, role: str = "kag", **kwargs) -> BaseAgent: ...
+    def get_agent(self, agent_id: str) -> Optional[BaseAgent]: ...
+    def list_agents(self) -> List[BaseAgent]: ...
+
+    async def run(self, input_data: Dict, run_id: str = None) -> RunResult: ...
+    async def pause(self) -> TeamSnapshot: ...
+    async def resume(self, snapshot: TeamSnapshot) -> RunResult: ...
+    async def cancel(self) -> bool: ...
+
+    def create_group(self, group_id: str, teams: List[LLMTeam]) -> LLMGroup: ...
+    def to_config(self) -> Dict: ...
+    @classmethod
+    def from_config(cls, config: Dict) -> LLMTeam: ...
+```
+
+### RunResult
+
+```python
+@dataclass
+class RunResult:
+    success: bool
+    status: RunStatus  # COMPLETED, FAILED, PAUSED, CANCELLED, TIMEOUT
+    output: Dict[str, Any]
+    final_output: Any
+    agents_called: List[str]
+    iterations: int
+    duration_ms: int
+    error: Optional[str]
+    started_at: datetime
+    completed_at: datetime
+```
+
+## Documentation
+
+- [Full Documentation](https://docs.llmteam.ai)
+- [API Reference](https://docs.llmteam.ai/api)
+- [Examples](https://github.com/llmteamai/llmteam/tree/main/examples)
+- [Changelog](https://github.com/llmteamai/llmteam/blob/main/CHANGELOG.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-Apache 2.0 License
+Apache 2.0 — see [LICENSE](LICENSE) for details.

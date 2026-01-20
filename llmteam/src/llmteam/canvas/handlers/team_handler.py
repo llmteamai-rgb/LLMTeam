@@ -2,14 +2,16 @@
 Team Handler for Canvas.
 
 Allows Canvas to invoke entire agent teams as workflow steps,
-delegating orchestration to the team's PipelineOrchestrator.
+delegating orchestration to the team's LLMTeam container (v3.0.0).
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from llmteam.runtime import StepContext
 from llmteam.observability import get_logger
 
+if TYPE_CHECKING:
+    from llmteam.team import LLMTeam
 
 logger = get_logger(__name__)
 
@@ -107,49 +109,63 @@ class TeamHandler:
         # Generate run_id from context
         run_id = f"{ctx.step_id}_{ctx.instance_id}" if hasattr(ctx, 'instance_id') else ctx.step_id
 
-        # Execute team orchestration
+        # Execute team using new LLMTeam.run() API (v3.0.0)
         logger.info(f"TeamHandler: invoking team '{team_ref}' with run_id '{run_id}'")
         try:
-            result = await team.orchestrate(run_id, mapped_input)
+            team_result = await team.run(mapped_input, run_id=run_id)
         except Exception as e:
             logger.error(f"TeamHandler: team '{team_ref}' execution failed: {e}")
             raise
 
-        # Map output data
-        mapped_output = self._apply_output_mapping(result, output_mapping)
-        logger.debug(f"TeamHandler: team '{team_ref}' completed successfully")
+        # Check for team execution failure
+        if not team_result.success:
+            error_msg = team_result.error or "Unknown team execution error"
+            logger.error(f"TeamHandler: team '{team_ref}' failed: {error_msg}")
+            raise RuntimeError(f"Team execution failed: {error_msg}")
 
-        return {"output": mapped_output}
+        # Map output data from TeamResult
+        mapped_output = self._apply_output_mapping(team_result.output, output_mapping)
+        logger.debug(
+            f"TeamHandler: team '{team_ref}' completed successfully "
+            f"(iterations={team_result.iterations}, agents={team_result.agents_called})"
+        )
 
-    def _resolve_team(self, ctx: StepContext, team_ref: str) -> Optional[Any]:
+        return {
+            "output": mapped_output,
+            "team_metadata": {
+                "iterations": team_result.iterations,
+                "agents_called": team_result.agents_called,  # v4.0.0: renamed from agents_invoked
+                "escalations": team_result.escalations,
+            }
+        }
+
+    def _resolve_team(self, ctx: StepContext, team_ref: str) -> Optional["LLMTeam"]:
         """
         Resolve team from runtime context.
+
+        Uses the StepContext.get_team() method added in v3.0.0.
 
         Args:
             ctx: Step context
             team_ref: Team reference name
 
         Returns:
-            Team instance or None if not found
+            LLMTeam instance or None if not found
         """
-        # Try to get team from runtime context
+        # Use StepContext.get_team() which delegates to RuntimeContext (v3.0.0)
+        team = ctx.get_team(team_ref)
+        if team is not None:
+            return team
+
+        # Fallback: try runtime directly for backwards compatibility
         runtime = getattr(ctx, 'runtime', None)
         if runtime is None:
             logger.warning("No runtime context available for team resolution")
             return None
 
-        # Check if runtime has team registry
+        # Check if runtime has team registry via get_team
         if hasattr(runtime, 'get_team'):
             return runtime.get_team(team_ref)
-
-        # Check if runtime has generic resource registry
-        if hasattr(runtime, 'get_resource'):
-            return runtime.get_resource('team', team_ref)
-
-        # Check teams dict directly
-        teams = getattr(runtime, '_teams', None)
-        if teams and team_ref in teams:
-            return teams[team_ref]
 
         return None
 

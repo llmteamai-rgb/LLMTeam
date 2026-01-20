@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 2.3.0
+- **Current version:** 4.0.0 (Agent Architecture Refactoring)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -81,64 +81,135 @@ llmteam serve --port 8000    # Start API server
 
 ## Architecture
 
-### Core Concept: Teams as Canvas Steps
+### Core Concept: Teams with Typed Agents (v4.0.0)
 
-LLMTeam orchestrates AI agents within teams. Teams are invoked as Canvas workflow steps:
+LLMTeam orchestrates typed AI agents (LLM, RAG, KAG). Teams use SegmentRunner internally:
 
 ```
 Canvas (SegmentRunner)         — Routing logic (edges, conditions, workflow)
        │
        ▼
-GroupOrchestrator              — Coordination (escalations, metrics, supervision)
+LLMTeam                        — Agent container, uses SegmentRunner internally
        │
        ▼
-LLMTeam (PipelineOrchestrator) — Agent orchestration (internal pipeline)
+LLMGroup                       — Multi-team coordination (group orchestrator = LLMAgent)
        │
        ▼
-Agents                         — LLM calls, tools, actions
+Typed Agents (LLM/RAG/KAG)     — LLM calls, retrieval, knowledge graphs
 ```
 
-**Key Principle:** Routing between teams is defined in Canvas, not in GroupOrchestrator.
+**Key Principles (v4.0.0):**
+- Only 3 agent types: LLM, RAG, KAG (no custom Agent classes)
+- Agents are created through `LLMTeam.add_agent(config)` using `AgentFactory`
+- Orchestrator is just an LLMAgent with a specialized prompt
+- Flow supports DAG: string ("a -> b -> c") or dict with edges/conditions
+- Context modes: SHARED (one mailbox) vs NOT_SHARED (per-agent mailbox)
 
 ### Module Structure
 
-| Version | Module | Purpose |
-|---------|--------|---------|
-| v1.7.0 | `tenancy/` | Multi-tenant isolation |
-| v1.7.0 | `audit/` | Compliance audit trail (SHA-256 chain) |
-| v1.7.0 | `context/` | Secure agent context, sealed data |
-| v1.7.0 | `ratelimit/` | Rate limiting + circuit breaker |
-| v1.8.0 | `licensing/` | License tiers (Community/Professional/Enterprise) |
-| v1.8.0 | `execution/` | Parallel pipeline execution |
-| v1.8.0 | `roles/` | Orchestrators, process mining, contracts, escalation |
-| v1.9.0 | `actions/` | External API/webhook calls |
-| v1.9.0 | `human/` | Human-in-the-loop |
-| v1.9.0 | `persistence/` | Snapshot pause/resume |
-| v2.0.0 | `runtime/` | RuntimeContext, RuntimeContextFactory, StepContext |
-| v2.0.0 | `events/` | Worktrail events for UI |
-| v2.0.0 | `canvas/` | Segment execution engine |
-| v2.0.0 | `canvas/handlers/` | Built-in step handlers |
-| v2.0.0 | `canvas/validation` | Segment validation with JSON Schema |
-| v2.0.0 | `observability/` | Structured logging (structlog) |
-| v2.0.0 | `cli/` | Command-line interface |
-| v2.0.0 | `api/` | REST + WebSocket API (FastAPI) |
-| v2.0.0 | `ports/` | Port definitions for step I/O |
-| v2.0.3 | `providers/` | LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, Ollama, LiteLLM) |
-| v2.0.3 | `testing/` | Mock providers, SegmentTestRunner, StepTestHarness |
-| v2.0.3 | `events/transports/` | WebSocketTransport, SSETransport |
-| v2.0.4 | `middleware/` | Step execution middleware (logging, timing, retry, caching, auth) |
-| v2.0.4 | `auth/` | OIDC, JWT, API key authentication + RBAC |
-| v2.0.4 | `clients/` | HTTP, GraphQL, gRPC clients with retry and circuit breaker |
-| v2.1.0 | `secrets/` | Secrets management (Vault, AWS, Azure, env fallback) |
-| v2.2.0 | `canvas/handlers/subworkflow_handler` | Nested workflow execution |
-| v2.2.0 | `canvas/handlers/switch_handler` | Multi-way branching (switch/case) |
-| v2.2.0 | `events/transports/redis` | Redis Pub/Sub transport |
-| v2.2.0 | `events/transports/kafka` | Kafka enterprise streaming |
-| v2.3.0 | `roles/contract.py` | TeamContract with input/output validation |
-| v2.3.0 | `canvas/handlers/team_handler.py` | Execute agent teams as Canvas steps |
-| v2.3.0 | `transport/bus.py` | SecureBus for event-driven communication |
+**Core (v4.0.0):**
+| Module | Purpose |
+|--------|---------|
+| `agents/` | Typed agents (LLMAgent, RAGAgent, KAGAgent), AgentFactory, configs, presets |
+| `team/` | LLMTeam container, LLMGroup, RunResult, TeamSnapshot |
+| `contract.py` | TeamContract, ContractValidationResult |
+| `registry/` | BaseRegistry[T], AgentRegistry, TeamRegistry |
+| `escalation/` | EscalationLevel, handlers (Default, Threshold, Chain) |
+| `mining/` | ProcessMiningEngine, ProcessEvent, ProcessMetrics |
+| `roles/` | Legacy module (deprecated, re-exports from new locations) |
+
+**Canvas & Runtime:**
+| Module | Purpose |
+|--------|---------|
+| `canvas/` | Segment execution engine, StepDefinition, EdgeDefinition |
+| `canvas/handlers/` | 12 built-in step handlers (llm_agent, team, transform, etc.) |
+| `runtime/` | RuntimeContext, StepContext, resource injection |
+| `events/` | Worktrail events, EventEmitter, transports |
+
+**Enterprise:**
+| Module | Purpose |
+|--------|---------|
+| `providers/` | LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, Ollama) |
+| `middleware/` | Step middleware (logging, timing, retry, caching, auth) |
+| `auth/` | OIDC, JWT, API key + RBAC |
+| `clients/` | HTTP, GraphQL, gRPC clients |
+| `secrets/` | Vault, AWS, Azure secrets |
+| `tenancy/` | Multi-tenant isolation |
+| `audit/` | Compliance audit trail |
 
 ### Key Patterns
+
+**LLMTeam Pattern (v4.0.0):** Team container with typed agents:
+```python
+from llmteam import LLMTeam
+
+# Create team with agents (only LLM, RAG, KAG types)
+team = LLMTeam(
+    team_id="content",
+    agents=[
+        {"type": "rag", "role": "retriever", "collection": "docs"},
+        {"type": "llm", "role": "writer", "prompt": "Write about: {query}"},
+    ],
+    flow="retriever -> writer",  # DAG flow
+)
+
+# Execute team
+result = await team.run({"query": "AI trends"})
+print(result.output)  # Combined agent outputs
+```
+
+**LLMGroup Pattern (v4.0.0):** Multi-team coordination:
+```python
+from llmteam import LLMTeam
+
+support_team = LLMTeam(team_id="support", agents=[...])
+billing_team = LLMTeam(team_id="billing", agents=[...])
+
+# Create group with support_team as leader
+group = support_team.create_group(
+    group_id="customer_service",
+    teams=[billing_team]
+)
+
+result = await group.run({"query": "Help with my bill"})
+```
+
+**Agent Configuration (v4.0.0):** Use configs or dicts:
+```python
+from llmteam.agents import LLMAgentConfig, RAGAgentConfig
+
+# Config objects
+team.add_agent(LLMAgentConfig(role="writer", prompt="...", model="gpt-4o"))
+team.add_agent(RAGAgentConfig(role="retriever", collection="docs", top_k=5))
+
+# Or dict shorthand
+team.add_agent({"type": "llm", "role": "writer", "prompt": "..."})
+team.add_agent({"type": "rag", "role": "retriever", "collection": "docs"})
+```
+
+**Orchestrator Presets (v4.0.0):** Pre-built agent configs:
+```python
+from llmteam.agents import create_orchestrator_config, create_summarizer_config
+
+# Add orchestrator for adaptive flow
+team = LLMTeam(team_id="adaptive", orchestration=True)  # Auto-adds orchestrator
+
+# Or manually with presets
+config = create_orchestrator_config(["agent1", "agent2"], model="gpt-4o")
+team.add_agent(config)
+```
+
+**Escalation Pattern (v4.0.0):** Structured escalation handling:
+```python
+from llmteam.escalation import Escalation, EscalationLevel, ChainHandler, DefaultHandler
+
+handler = ChainHandler([ThresholdHandler(threshold=3), DefaultHandler()])
+decision = handler.handle(Escalation(
+    level=EscalationLevel.WARNING,
+    source_team="billing_team",
+    reason="Refund exceeds threshold",
+))
+```
 
 **Store Pattern:** All stores use dependency injection:
 - Abstract base class defines interface
@@ -152,35 +223,11 @@ from llmteam.runtime import RuntimeContextFactory
 factory = RuntimeContextFactory()
 factory.register_store("redis", redis_store)
 factory.register_llm("gpt4", openai_provider)
+factory.register_team(support_team)  # v3.0.0: Register teams
 
 runtime = factory.create_runtime(tenant_id="acme", instance_id="run-123")
 step_ctx = runtime.child_context("step_1")
-```
-
-**TeamContract Pattern (v2.3.0):** Formal input/output contracts for teams:
-```python
-from llmteam.roles import TeamContract, PipelineOrchestrator
-
-contract = TeamContract(
-    name="triage_team",
-    inputs=[TypedPort(name="ticket", data_type="object", required=True)],
-    outputs=[TypedPort(name="category", data_type="string", required=True)],
-    strict=True,
-)
-
-team = PipelineOrchestrator(pipeline_id="triage", contract=contract)
-```
-
-**Escalation Pattern (v2.3.0):** Structured escalation handling:
-```python
-from llmteam.roles import GroupOrchestrator, Escalation, EscalationLevel
-
-group = GroupOrchestrator("support_group")
-decision = await group.handle_escalation(Escalation(
-    level=EscalationLevel.WARNING,
-    source_pipeline="billing_team",
-    reason="Refund exceeds threshold",
-))
+team = step_ctx.get_team("support")  # v3.0.0: Access teams
 ```
 
 ### Security Principles
@@ -189,6 +236,41 @@ decision = await group.handle_escalation(Escalation(
 2. **Vertical Visibility** — Orchestrators see only their child agents
 3. **Sealed Data** — Only the owner agent can access sealed fields
 4. **Tenant Isolation** — Complete data separation between tenants
+
+## Migration from v3.x to v4.0.0
+
+```python
+# v3.x (deprecated)
+from llmteam import LLMTeam, Agent
+
+class MyAgent(Agent):  # Custom Agent class
+    async def process(self, state): ...
+
+team = LLMTeam(team_id="support")
+team.register_agent(MyAgent("triage"))
+result = await team.run(data)
+
+# v4.0.0 (recommended)
+from llmteam import LLMTeam
+
+# Use typed agents (LLM, RAG, KAG) via config dicts
+team = LLMTeam(
+    team_id="support",
+    agents=[
+        {"type": "llm", "role": "triage", "prompt": "Triage: {input}"},
+        {"type": "llm", "role": "resolver", "prompt": "Resolve: {input}"},
+    ],
+    flow="triage -> resolver",
+)
+result = await team.run(data)
+
+# Key changes in v4.0.0:
+# - No custom Agent classes (use LLM/RAG/KAG types)
+# - Agents created via add_agent(config) not register_agent()
+# - Flow defined as string or dict DAG
+# - Orchestrator is just LLMAgent with preset prompt
+# - compat/ module removed (no backwards compatibility layer)
+```
 
 ## Creating New Modules
 
@@ -208,7 +290,7 @@ decision = await group.handle_escalation(Escalation(
 | Handler | Step Type | Purpose |
 |---------|-----------|---------|
 | `LLMAgentHandler` | `llm_agent` | LLM completion with prompt templating |
-| `TeamHandler` | `team` | **v2.3.0** Execute agent teams as steps |
+| `TeamHandler` | `team` | Execute LLMTeam as canvas step (v3.0.0 API) |
 | `HTTPActionHandler` | `http_action` | HTTP requests with headers/timeout |
 | `TransformHandler` | `transform` | Data transformation with expressions |
 | `ConditionHandler` | `condition` | Conditional branching |
@@ -223,7 +305,22 @@ decision = await group.handle_escalation(Escalation(
 
 ```python
 from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, SegmentRunner
+from llmteam import LLMTeam
+from llmteam.runtime import RuntimeContextFactory
 
+# Create team with typed agents (v4.0.0)
+team = LLMTeam(
+    team_id="triage_team",
+    agents=[
+        {"type": "llm", "role": "triage", "prompt": "Categorize: {query}"},
+    ],
+)
+
+factory = RuntimeContextFactory()
+factory.register_team(team)
+runtime = factory.create_runtime(tenant_id="acme", instance_id="run-123")
+
+# Define segment using team step
 segment = SegmentDefinition(
     segment_id="example",
     name="Example Workflow",
@@ -239,6 +336,7 @@ segment = SegmentDefinition(
 
 runner = SegmentRunner()
 result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtime=runtime)
+# result includes team_metadata with agents_called, iterations, escalations
 ```
 
 ## Publishing to PyPI

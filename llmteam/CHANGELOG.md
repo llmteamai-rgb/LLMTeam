@@ -5,6 +5,182 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-01-19
+
+### Added
+
+- **Typed Agent Architecture** - New `llmteam.agents` package:
+  - `AgentType` enum - LLM, RAG, KAG (only 3 types allowed)
+  - `AgentMode` enum - NATIVE, PROXY modes for RAG/KAG
+  - `AgentConfig`, `LLMAgentConfig`, `RAGAgentConfig`, `KAGAgentConfig` - Configuration dataclasses
+  - `AgentState` - Runtime state tracking with lifecycle methods
+  - `AgentResult`, `RAGResult`, `KAGResult` - Typed execution results
+  - `AgentFactory.create()` - Factory for creating agents from config dicts
+  - Preset configs: `create_orchestrator_config`, `create_group_orchestrator_config`, etc.
+
+- **LLMTeam v4.0.0** - Refactored team container:
+  - Uses SegmentRunner internally (not custom runtime)
+  - `add_agent(config)` - Add agent via dict or AgentConfig
+  - `add_llm_agent()`, `add_rag_agent()`, `add_kag_agent()` - Shortcut methods
+  - `flow` parameter - DAG definition as string ("a -> b -> c") or dict
+  - `ContextMode` - SHARED (one mailbox) vs NOT_SHARED (per-agent mailbox)
+  - `pause()`, `resume()`, `cancel()` - Execution control
+  - `create_group()` - Create LLMGroup with this team as leader
+
+- **LLMGroup** - Multi-team coordination:
+  - Group orchestrator is just an LLMAgent with specialized prompt
+  - Automatic routing between teams based on task context
+  - `run()` - Execute group with iterative team selection
+
+- **RunResult** - Unified execution result:
+  - `success`, `status` - Execution status
+  - `output`, `final_output` - Agent outputs
+  - `agents_called`, `iterations` - Execution metadata
+  - `escalations` - Escalation records
+  - `TeamSnapshot` - For pause/resume
+
+### Removed
+
+- **agent.py** - Old Agent base class (use typed agents via LLMTeam)
+- **compat/** - Compatibility layer module (no backwards compatibility)
+- **orchestration/team_orchestrator.py** - Replaced by LLMTeam internal flow
+- **orchestration/group_orchestrator.py** - Replaced by LLMGroup
+- **roles/orchestration.py**, **roles/pipeline_orch.py**, **roles/group_orch.py** - Legacy modules
+
+### Changed
+
+- `agents_invoked` renamed to `agents_called` in RunResult and TeamHandler
+- `TeamResult` is now an alias for `RunResult`
+- Registry uses `BaseAgent` from new agents package
+- TeamHandler uses v4.0.0 API with `agents_called` field
+
+---
+
+## [3.0.0] - 2026-01-18
+
+### Added
+
+- **Agent Abstraction** - New `llmteam.agent` module:
+  - `Agent` - Abstract base class for all agents with `process()` method
+  - `AgentProtocol` - Protocol for duck typing agent implementations
+  - `AgentState` - Input state container with data, metadata, history
+  - `AgentResult` - Agent execution result with output, escalation support
+  - `FunctionAgent` - Simple function-based agent wrapper
+  - `LLMAgent` - LLM-powered agent with system prompt and tool support
+
+- **Generic Registries** - New `llmteam.registry` module:
+  - `BaseRegistry[T]` - Type-safe generic registry with callbacks
+  - `AgentRegistry` - Specialized registry for agents with team back-references
+  - `TeamRegistry` - Specialized registry for teams with health/availability tracking
+
+- **LLMTeam Container** - New `llmteam.team` module:
+  - `LLMTeam` - Primary team container class (replaces PipelineOrchestrator usage)
+  - `TeamConfig` - Team configuration (strict_validation, max_iterations, timeout)
+  - `TeamResult` - Team execution result with output, agents_invoked, escalations
+  - `team.run(input_data, run_id)` - New execution API
+  - `team.register_agent()` / `team.unregister_agent()` - Agent management
+  - `team.on_escalation()` - Escalation handler registration
+  - Health score and availability tracking
+
+- **Team Orchestrator** - New `llmteam.orchestration.team_orchestrator`:
+  - `TeamOrchestrator` - Orchestrates agent execution within a team
+  - `OrchestrationMode` - SEQUENTIAL, ROUND_ROBIN, LLM_ROUTING modes
+  - `OrchestrationStrategy` - Abstract strategy interface
+  - `SequentialStrategy` - Execute agents in order
+  - `RoundRobinStrategy` - Distribute work across agents
+  - `LLMRoutingStrategy` - LLM-based intelligent routing
+  - `OrchestrationContext` - Context for strategy decisions
+  - `OrchestrationDecision` - Strategy output with next agent selection
+
+- **Group Orchestrator (v3.0.0)** - New `llmteam.orchestration.group_orchestrator`:
+  - `GroupOrchestrator` - Pure coordinator for multiple teams (not a router)
+  - `GroupMetrics` - Team health, escalation counts, availability
+  - Escalation handling with `handle_team_escalation()`
+  - Team registration with `register_team()` / `unregister_team()`
+
+- **Escalation Subsystem** - New `llmteam.escalation` module:
+  - `EscalationLevel` - INFO, WARNING, CRITICAL, EMERGENCY severity levels
+  - `EscalationAction` - ACKNOWLEDGE, RETRY, REDIRECT, ABORT, HUMAN_REVIEW
+  - `Escalation` - Escalation event with source, reason, context
+  - `EscalationDecision` - Handler response with action and target
+  - `EscalationRecord` - Audit record of escalation handling
+  - `EscalationHandler` - Abstract handler interface
+  - `DefaultHandler` - Level-based default actions
+  - `ThresholdHandler` - Count-based escalation triggering
+  - `FunctionHandler` - Custom function wrapper
+  - `ChainHandler` - Chain multiple handlers
+  - `LevelFilterHandler` - Filter by escalation level
+
+- **RuntimeContext Updates**:
+  - `RuntimeContext.teams` - TeamRegistry for team management
+  - `RuntimeContext.resolve_team()` / `get_team()` - Team resolution
+  - `RuntimeContext.register_team()` - Team registration
+  - `RuntimeContextFactory.register_team()` - Factory-level team registration
+  - `StepContext.get_team()` - Team access from step context
+
+- **Compatibility Layer** - New `llmteam.compat` module:
+  - `LegacyPipelineOrchestrator` - v2.x API wrapper for LLMTeam
+  - `LegacyAgentAdapter` - Adapt v2.x agents to v3.0.0 Agent interface
+  - `PipelineOrchestratorAdapter` - Wrap v2.x orchestrator for team API
+  - `create_team_from_orchestrator()` - Migrate v2.x to v3.0.0
+  - `create_orchestrator_from_team()` - Create legacy wrapper
+  - `Pipeline` - Deprecated alias for LLMTeam
+
+### Changed
+
+- **TeamHandler** - Updated to use new LLMTeam API:
+  - Uses `team.run(input_data, run_id)` instead of `team.orchestrate()`
+  - Returns `TeamResult` with metadata (iterations, agents_invoked, escalations)
+  - Uses `ctx.get_team()` for team resolution
+  - Includes `team_metadata` in handler output
+
+- **Main exports** - Added v3.0.0 classes to `llmteam.__init__.py`:
+  - Agent, AgentState, AgentResult, FunctionAgent, LLMAgent
+  - BaseRegistry, AgentRegistry, TeamRegistry
+  - LLMTeam, TeamConfig, TeamResult
+  - TeamOrchestrator, OrchestrationMode, SequentialStrategy, etc.
+  - EscalationLevel, EscalationAction, Escalation, handlers
+
+### Deprecated
+
+- `PipelineOrchestrator` - Use `LLMTeam` with `TeamOrchestrator` instead
+- `Pipeline` - Deprecated alias, use `LLMTeam`
+- `team.orchestrate()` - Use `team.run()` instead
+
+### Migration Guide
+
+**v2.x code:**
+```python
+from llmteam.roles import PipelineOrchestrator
+
+orchestrator = PipelineOrchestrator(pipeline_id="support")
+orchestrator.register_agent("triage", triage_agent)
+result = await orchestrator.orchestrate(run_id, input_data)
+```
+
+**v3.0.0 code:**
+```python
+from llmteam import LLMTeam, Agent
+
+class TriageAgent(Agent):
+    async def process(self, state):
+        return AgentResult(output={"category": "billing"})
+
+team = LLMTeam(team_id="support")
+team.register_agent(TriageAgent("triage"))
+result = await team.run(input_data, run_id=run_id)
+```
+
+**Using compatibility layer:**
+```python
+from llmteam.compat import LegacyPipelineOrchestrator
+
+# Works like v2.x
+orchestrator = LegacyPipelineOrchestrator(pipeline_id="support")
+orchestrator.register_agent("triage", triage_agent)
+result = await orchestrator.orchestrate(run_id, input_data)
+```
+
 ## [2.3.0] - 2025-01-18
 
 ### Added
@@ -317,6 +493,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core pipeline execution framework
 - Basic agent context management
 
+[3.0.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.3.0...v3.0.0
 [2.3.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.1.0...v2.2.0
