@@ -149,3 +149,9 @@ Thumbs.db
 # Project specific
 *.log
 .claude/
+
+# Archives and temp folders
+*.zip
+*.7z
+изменения/
+llmteam-v*.md
