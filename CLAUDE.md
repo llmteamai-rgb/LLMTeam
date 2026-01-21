@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 4.1.0 (TeamOrchestrator with ROUTER Mode)
+- **Current version:** 4.2.0 (Quality Slider - RFC-008)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -125,6 +125,7 @@ AgentReport                    — Automatic reporting to orchestrator
 | `registry/` | BaseRegistry[T], AgentRegistry, TeamRegistry |
 | `escalation/` | EscalationLevel, handlers (Default, Threshold, Chain) |
 | `mining/` | ProcessMiningEngine, ProcessEvent, ProcessMetrics |
+| `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator (RFC-008) |
 | `roles/` | Legacy module (deprecated, re-exports from new locations) |
 
 **Canvas & Runtime:**
@@ -225,7 +226,7 @@ summary = orchestrator.get_summary()  # Dict with stats
 report_text = orchestrator.generate_report()  # Markdown/JSON/text
 ```
 
-**LLMTeam Pattern (v4.1.0):** Team container with typed agents:
+**LLMTeam Pattern (v4.2.0):** Team container with typed agents and quality control:
 ```python
 from llmteam import LLMTeam
 
@@ -237,6 +238,8 @@ team = LLMTeam(
         {"type": "llm", "role": "writer", "prompt": "Write about: {query}"},
     ],
     flow="retriever -> writer",  # DAG flow
+    quality=70,  # RFC-008: Quality slider 0-100
+    max_cost_per_run=1.00,  # RFC-008: Optional cost limit
 )
 
 # Execute team
@@ -244,6 +247,10 @@ result = await team.run({"query": "AI trends"})
 print(result.output)  # Combined agent outputs
 print(result.report)  # Execution report (v4.1.0)
 print(result.summary)  # Execution summary (v4.1.0)
+
+# RFC-008: Get cost estimate and quality info
+estimate = await team.estimate_cost()
+manager = team.get_quality_manager()
 ```
 
 **LLMGroup Pattern (v4.0.0):** Multi-team coordination:
@@ -301,6 +308,45 @@ decision = handler.handle(Escalation(
 ))
 ```
 
+**Quality Slider Pattern (RFC-008):** Control quality/cost tradeoff with single 0-100 parameter:
+```python
+from llmteam import LLMTeam, QualityManager
+from llmteam.quality import QualityPreset, CostEstimator
+
+# Create team with quality setting (0-100 or preset name)
+team = LLMTeam(
+    team_id="content",
+    agents=[
+        {"type": "llm", "role": "writer", "prompt": "Write: {query}"},
+    ],
+    quality=70,  # Higher = better quality, higher cost
+    max_cost_per_run=1.00,  # Optional cost limit
+)
+
+# Or use preset names: draft(20), economy(30), balanced(50), production(75), best(95)
+team = LLMTeam(team_id="fast", quality="draft")
+team = LLMTeam(team_id="prod", quality="production")
+
+# Get cost estimate before running
+estimate = await team.estimate_cost(complexity="medium")
+print(f"Estimated: ${estimate.min_cost:.2f} - ${estimate.max_cost:.2f}")
+
+# Run with quality override or importance
+result = await team.run({"query": "..."}, quality=80)  # Override quality
+result = await team.run({"query": "..."}, importance="high")  # +20 quality
+
+# Use QualityManager directly for model selection
+manager = QualityManager(quality=70)
+model = manager.get_model("complex")  # Returns appropriate model
+params = manager.get_generation_params()  # {max_tokens, temperature}
+depth = manager.get_pipeline_depth()  # SHALLOW | MEDIUM | DEEP
+
+# Auto mode: quality adjusts based on budget usage
+manager = QualityManager(quality="auto")
+manager.set_daily_budget(10.0)
+manager.record_spend(5.0)  # Tracks spending, adjusts quality
+```
+
 **Store Pattern:** All stores use dependency injection:
 - Abstract base class defines interface
 - `MemoryStore` for testing, `PostgresStore` for production
@@ -326,6 +372,43 @@ team = step_ctx.get_team("support")  # v3.0.0: Access teams
 2. **Vertical Visibility** — Orchestrators see only their child agents
 3. **Sealed Data** — Only the owner agent can access sealed fields
 4. **Tenant Isolation** — Complete data separation between tenants
+
+## Migration from v4.1.0 to v4.2.0
+
+```python
+# v4.1.0 (still works)
+team = LLMTeam(team_id="support", agents=[...])
+result = await team.run(data)
+
+# v4.2.0 (RFC-008: Quality Slider)
+from llmteam import LLMTeam, QualityManager
+
+team = LLMTeam(
+    team_id="support",
+    agents=[...],
+    quality=70,  # NEW: Quality slider 0-100
+    max_cost_per_run=1.00,  # NEW: Optional cost limit
+)
+
+# NEW: Get cost estimate before running
+estimate = await team.estimate_cost(complexity="medium")
+
+# NEW: Run with quality override or importance
+result = await team.run(data, quality=80)  # Override quality
+result = await team.run(data, importance="high")  # +20 quality
+
+# NEW: Access QualityManager
+manager = team.get_quality_manager()
+
+# Key additions in v4.2.0:
+# - LLMTeam.quality property (0-100 or preset name)
+# - LLMTeam.max_cost_per_run property
+# - LLMTeam.estimate_cost() method
+# - LLMTeam.get_quality_manager() method
+# - run() accepts quality= and importance= parameters
+# - QualityManager for model selection based on quality
+# - CostEstimator for cost prediction
+```
 
 ## Migration from v4.0.0 to v4.1.0
 
