@@ -51,7 +51,7 @@ class TestGroupOrchestratorConfig:
         )
 
         assert config["type"] == "llm"
-        assert config["role"] == "_group_orchestrator"
+        assert config["role"] == "group_orchestrator"  # v4.1: no underscore prefix
         assert config["model"] == "gpt-4o"
         assert "support" in config["metadata"]["available_teams"]
         assert "billing" in config["metadata"]["available_teams"]
