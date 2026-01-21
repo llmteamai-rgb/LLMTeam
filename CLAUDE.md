@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 4.0.0 (Agent Architecture Refactoring)
+- **Current version:** 4.1.0 (TeamOrchestrator with ROUTER Mode)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -81,36 +81,45 @@ llmteam serve --port 8000    # Start API server
 
 ## Architecture
 
-### Core Concept: Teams with Typed Agents (v4.0.0)
+### Core Concept: Teams with Typed Agents and TeamOrchestrator (v4.1.0)
 
-LLMTeam orchestrates typed AI agents (LLM, RAG, KAG). Teams use SegmentRunner internally:
+LLMTeam orchestrates typed AI agents (LLM, RAG, KAG). TeamOrchestrator is a **separate supervisor entity** (NOT an agent):
 
 ```
 Canvas (SegmentRunner)         — Routing logic (edges, conditions, workflow)
        │
        ▼
-LLMTeam                        — Agent container, uses SegmentRunner internally
-       │
+LLMTeam + TeamOrchestrator     — Agent container + separate supervisor
+       │                         (orchestrator NOT in _agents dict)
        ▼
-LLMGroup                       — Multi-team coordination (group orchestrator = LLMAgent)
+LLMGroup                       — Multi-team coordination
        │
        ▼
 Typed Agents (LLM/RAG/KAG)     — LLM calls, retrieval, knowledge graphs
+       │
+       ▼
+AgentReport                    — Automatic reporting to orchestrator
 ```
 
-**Key Principles (v4.0.0):**
+**Key Principles (v4.1.0):**
 - Only 3 agent types: LLM, RAG, KAG (no custom Agent classes)
 - Agents are created through `LLMTeam.add_agent(config)` using `AgentFactory`
-- Orchestrator is just an LLMAgent with a specialized prompt
+- **TeamOrchestrator is separate** — NOT an agent, NOT in `_agents` dict
+- **OrchestratorMode** — PASSIVE (default) vs ACTIVE (ROUTER) vs FULL
+- **AgentReport** — Agents automatically report to orchestrator after execution
 - Flow supports DAG: string ("a -> b -> c") or dict with edges/conditions
 - Context modes: SHARED (one mailbox) vs NOT_SHARED (per-agent mailbox)
+- **Reserved roles** — Roles starting with `_` are reserved for internal use
 
 ### Module Structure
 
-**Core (v4.0.0):**
+**Core (v4.1.0):**
 | Module | Purpose |
 |--------|---------|
 | `agents/` | Typed agents (LLMAgent, RAGAgent, KAGAgent), AgentFactory, configs, presets |
+| `agents/orchestrator.py` | **TeamOrchestrator**, OrchestratorMode, OrchestratorConfig, RoutingDecision |
+| `agents/report.py` | **AgentReport** model for agent-to-orchestrator reporting |
+| `agents/prompts.py` | Routing and recovery prompts for orchestrator LLM |
 | `team/` | LLMTeam container, LLMGroup, RunResult, TeamSnapshot |
 | `contract.py` | TeamContract, ContractValidationResult |
 | `registry/` | BaseRegistry[T], AgentRegistry, TeamRegistry |
@@ -139,7 +148,84 @@ Typed Agents (LLM/RAG/KAG)     — LLM calls, retrieval, knowledge graphs
 
 ### Key Patterns
 
-**LLMTeam Pattern (v4.0.0):** Team container with typed agents:
+**TeamOrchestrator Pattern (v4.1.0):** Separate supervisor with modes:
+```python
+from llmteam import LLMTeam
+from llmteam.agents.orchestrator import (
+    TeamOrchestrator, OrchestratorMode, OrchestratorConfig
+)
+
+# PASSIVE mode (default) - Canvas controls flow, all agents called sequentially
+team = LLMTeam(
+    team_id="support",
+    agents=[
+        {"type": "llm", "role": "billing", "prompt": "Handle billing: {query}"},
+        {"type": "llm", "role": "technical", "prompt": "Handle tech: {query}"},
+    ],
+)
+# team.get_orchestrator() returns TeamOrchestrator in PASSIVE mode
+# team.is_router_mode == False
+
+# ROUTER mode (ACTIVE) - Orchestrator LLM selects ONE agent per task
+team = LLMTeam(
+    team_id="support",
+    agents=[
+        {"type": "llm", "role": "billing", "prompt": "Handle billing: {query}"},
+        {"type": "llm", "role": "technical", "prompt": "Handle tech: {query}"},
+    ],
+    orchestration=True,  # Enables ROUTER mode
+)
+# team.is_router_mode == True
+# Orchestrator decides: billing question → billing agent only
+
+# Or configure explicitly
+team = LLMTeam(
+    team_id="support",
+    agents=[...],
+    orchestrator=OrchestratorConfig(
+        mode=OrchestratorMode.ACTIVE,  # SUPERVISOR | REPORTER | ROUTER
+        model="gpt-4o",
+        auto_retry=True,
+        max_retries=2,
+    ),
+)
+```
+
+**OrchestratorMode Flags (v4.1.0):**
+```python
+from llmteam.agents.orchestrator import OrchestratorMode
+
+# Individual flags
+OrchestratorMode.SUPERVISOR  # Observe, receive reports
+OrchestratorMode.REPORTER    # Generate execution reports
+OrchestratorMode.ROUTER      # Control agent selection (LLM decides)
+OrchestratorMode.RECOVERY    # Decide on error recovery
+
+# Presets
+OrchestratorMode.PASSIVE  # SUPERVISOR | REPORTER (default)
+OrchestratorMode.ACTIVE   # SUPERVISOR | REPORTER | ROUTER
+OrchestratorMode.FULL     # All flags enabled
+```
+
+**AgentReport Pattern (v4.1.0):** Automatic reporting to orchestrator:
+```python
+from llmteam.agents.report import AgentReport
+
+# Agents automatically report to orchestrator after execution
+# AgentReport contains:
+# - agent_id, agent_role, agent_type
+# - started_at, completed_at, duration_ms
+# - input_summary, output_summary
+# - success, error, tokens_used, model
+
+# Access reports via orchestrator
+orchestrator = team.get_orchestrator()
+reports = orchestrator.reports  # List[AgentReport]
+summary = orchestrator.get_summary()  # Dict with stats
+report_text = orchestrator.generate_report()  # Markdown/JSON/text
+```
+
+**LLMTeam Pattern (v4.1.0):** Team container with typed agents:
 ```python
 from llmteam import LLMTeam
 
@@ -156,6 +242,8 @@ team = LLMTeam(
 # Execute team
 result = await team.run({"query": "AI trends"})
 print(result.output)  # Combined agent outputs
+print(result.report)  # Execution report (v4.1.0)
+print(result.summary)  # Execution summary (v4.1.0)
 ```
 
 **LLMGroup Pattern (v4.0.0):** Multi-team coordination:
@@ -187,15 +275,17 @@ team.add_agent({"type": "llm", "role": "writer", "prompt": "..."})
 team.add_agent({"type": "rag", "role": "retriever", "collection": "docs"})
 ```
 
-**Orchestrator Presets (v4.0.0):** Pre-built agent configs:
+**Orchestrator Presets (v4.1.0):** Pre-built configs for common patterns:
 ```python
 from llmteam.agents import create_orchestrator_config, create_summarizer_config
 
-# Add orchestrator for adaptive flow
-team = LLMTeam(team_id="adaptive", orchestration=True)  # Auto-adds orchestrator
+# ROUTER mode (v4.1.0) - orchestrator is separate, not added as agent
+team = LLMTeam(team_id="adaptive", orchestration=True)
+# team.get_orchestrator() is TeamOrchestrator (NOT an agent)
+# team.is_router_mode == True
 
-# Or manually with presets
-config = create_orchestrator_config(["agent1", "agent2"], model="gpt-4o")
+# Presets still available for specialized LLMAgents
+config = create_summarizer_config(role="summarizer", model="gpt-4o")
 team.add_agent(config)
 ```
 
@@ -236,6 +326,29 @@ team = step_ctx.get_team("support")  # v3.0.0: Access teams
 2. **Vertical Visibility** — Orchestrators see only their child agents
 3. **Sealed Data** — Only the owner agent can access sealed fields
 4. **Tenant Isolation** — Complete data separation between tenants
+
+## Migration from v4.0.0 to v4.1.0
+
+```python
+# v4.0.0 (deprecated)
+team = LLMTeam(team_id="support", orchestration=True)
+# Orchestrator was added as agent in _agents dict
+# team._has_orchestrator attribute used for checking
+
+# v4.1.0 (recommended)
+team = LLMTeam(team_id="support", orchestration=True)
+# TeamOrchestrator is now SEPARATE entity (not an agent)
+orchestrator = team.get_orchestrator()  # Returns TeamOrchestrator
+is_routing = team.is_router_mode  # Check if ROUTER mode enabled
+
+# Key changes in v4.1.0:
+# - TeamOrchestrator is separate class, NOT in _agents dict
+# - Use get_orchestrator() instead of _has_orchestrator
+# - Use is_router_mode property to check ROUTER mode
+# - Roles starting with _ are reserved (will raise error)
+# - RunResult now has .report and .summary fields
+# - AgentReport model for automatic reporting
+```
 
 ## Migration from v3.x to v4.0.0
 
@@ -308,13 +421,14 @@ from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, Se
 from llmteam import LLMTeam
 from llmteam.runtime import RuntimeContextFactory
 
-# Create team with typed agents (v4.0.0)
+# Create team with typed agents (v4.1.0)
 team = LLMTeam(
     team_id="triage_team",
     agents=[
         {"type": "llm", "role": "triage", "prompt": "Categorize: {query}"},
     ],
 )
+# team.get_orchestrator() returns TeamOrchestrator in PASSIVE mode
 
 factory = RuntimeContextFactory()
 factory.register_team(team)
@@ -337,6 +451,7 @@ segment = SegmentDefinition(
 runner = SegmentRunner()
 result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtime=runtime)
 # result includes team_metadata with agents_called, iterations, escalations
+# v4.1.0: result.report and result.summary available from orchestrator
 ```
 
 ## Publishing to PyPI
