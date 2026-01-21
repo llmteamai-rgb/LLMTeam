@@ -4,14 +4,14 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 5.0.0 (RFC-006: Canvas → Optional Engine)
-    - BREAKING: Renamed canvas/ → engine/ module
-    - BREAKING: Renamed Segment* → Execution*/Workflow* classes
-    - New: Engine is now optional (pip install llmteam-ai[engine])
-    - New: ExecutionEngine (formerly SegmentRunner)
-    - New: WorkflowDefinition (formerly SegmentDefinition)
-    - New: ExecutionResult (formerly SegmentResult)
-    - Backward compatibility aliases for all renamed classes
+Version: 4.2.0 (RFC-008: Quality Slider)
+    - New: QualityManager for quality/cost tradeoff control
+    - New: Quality presets (draft, economy, balanced, production, best)
+    - New: CostEstimate and CostEstimator for cost prediction
+    - New: LLMTeam.quality parameter (0-100 or preset name)
+    - New: LLMTeam.estimate_cost() method
+    - New: run(quality=, importance=) parameters
+    - New: Auto mode with budget-based quality adjustment
 
 Version: 4.1.0 (Orchestrator Architecture Refactoring)
     - New: TeamOrchestrator as separate supervisor (not agent)
@@ -46,7 +46,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.0.0"
+__version__ = "4.2.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
