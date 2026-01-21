@@ -14,6 +14,7 @@ from llmteam.agents.report import AgentReport
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
+    from llmteam.orchestration.models import GroupContext
 
 
 class OrchestratorMode(Flag):
@@ -128,6 +129,9 @@ class TeamOrchestrator:
 
         # LLM provider (lazy init)
         self._llm = None
+
+        # RFC-009: Group context
+        self._group_context: Optional["GroupContext"] = None
 
     # Properties
 
@@ -355,6 +359,39 @@ class TeamOrchestrator:
         self._scope = OrchestratorScope.GROUP
         # Store reference to other teams for coordination
         self._group_teams = teams
+
+    # RFC-009: Group Context Integration
+
+    def _set_group_context(self, context: "GroupContext") -> None:
+        """
+        INTERNAL: Set group context.
+
+        Called from LLMTeam._join_group().
+
+        Args:
+            context: GroupContext from GroupOrchestrator
+        """
+        self._group_context = context
+        self._scope = OrchestratorScope.GROUP
+
+    def _clear_group_context(self) -> None:
+        """
+        INTERNAL: Clear group context.
+
+        Called from LLMTeam._leave_group().
+        """
+        self._group_context = None
+        self._scope = OrchestratorScope.TEAM
+
+    @property
+    def is_in_group(self) -> bool:
+        """Is team in a group? (RFC-009)"""
+        return self._group_context is not None
+
+    @property
+    def group_id(self) -> Optional[str]:
+        """Group ID (if in group). (RFC-009)"""
+        return self._group_context.group_id if self._group_context else None
 
     # Internal methods
 

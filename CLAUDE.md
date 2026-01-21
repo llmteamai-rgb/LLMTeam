@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 5.1.0 (RFC-008: Quality Slider)
+- **Current version:** 5.2.0 (RFC-009: Group Architecture Unification)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 

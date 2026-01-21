@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.0] - 2026-01-21
+
+### Added
+
+- **RFC-009: Group Architecture Unification** - Unified group coordination with bi-directional context:
+  - `TeamRole` - Roles for teams within a group (LEADER, MEMBER, SPECIALIST, FALLBACK)
+  - `GroupRole` extensions - New coordinator roles (COORDINATOR, ROUTER, AGGREGATOR, ARBITER)
+  - `GroupContext` - Bi-directional context passed between GroupOrchestrator and teams
+  - `EscalationRequest` / `EscalationResponse` - Group-level escalation handling
+  - `EscalationAction` - Actions for group escalation (RETRY, SKIP, REROUTE, ABORT, CONTINUE, HUMAN)
+
+- **LLMTeam Group Integration**:
+  - `team.is_in_group` - Check if team is part of a group
+  - `team.group_id` - Get group ID (if in group)
+  - `team.group_role` - Get team's role in group ("leader", "member", etc.)
+  - `team.escalate_to_group()` - Escalate issue to group orchestrator
+  - `team.request_team()` - Request another team via group orchestrator
+
+- **GroupOrchestrator Enhancements**:
+  - `add_team(team, role=TeamRole.MEMBER)` - Add team with specific role
+  - `get_team_role(team_id)` - Get team's role
+  - `orch.leader` - Get leader team (if any)
+  - `route_to_team()` - Route tasks between teams
+  - `_handle_escalation()` - Handle escalations from teams
+  - Execution strategies based on GroupRole (REPORT_COLLECTOR, COORDINATOR, etc.)
+
+- **Report Extensions**:
+  - `TeamReport.team_role` - Team's role in group
+  - `TeamReport.escalations_sent` - Number of escalations sent
+  - `GroupReport.run_id` - Run identifier
+  - `GroupReport.escalations_handled` - Number of escalations handled
+  - `GroupResult.run_id`, `GroupResult.duration_ms` - Execution metadata
+
+- **API**:
+  ```python
+  from llmteam import LLMTeam
+  from llmteam.orchestration import GroupOrchestrator, TeamRole, GroupRole
+
+  # Create group with coordinator role
+  orch = GroupOrchestrator(group_id="support", role=GroupRole.COORDINATOR)
+
+  # Add teams with roles
+  orch.add_team(triage_team, role=TeamRole.LEADER)
+  orch.add_team(billing_team, role=TeamRole.SPECIALIST)
+  orch.add_team(fallback_team, role=TeamRole.FALLBACK)
+
+  # Teams receive context automatically
+  assert triage_team.is_in_group is True
+  assert triage_team.group_role == "leader"
+
+  # Execute group
+  result = await orch.execute({"query": "..."})
+
+  # Escalation from team
+  response = await billing_team.escalate_to_group(
+      reason="Complex refund request",
+      context={"amount": 5000}
+  )
+  ```
+
+### Changed
+
+- **Version**: Updated to 5.2.0
+
+---
+
 ## [5.0.0] - 2026-01-21
 
 ### Breaking Changes

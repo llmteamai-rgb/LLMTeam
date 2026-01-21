@@ -4,6 +4,15 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 5.2.0 (RFC-009: Group Architecture Unification)
+    - New: TeamRole enum (LEADER, MEMBER, SPECIALIST, FALLBACK)
+    - New: GroupRole extensions (COORDINATOR, ROUTER, AGGREGATOR, ARBITER)
+    - New: GroupContext for bi-directional team-group communication
+    - New: EscalationRequest/EscalationResponse for group-level escalation
+    - New: LLMTeam.is_in_group, group_id, group_role properties
+    - New: LLMTeam.escalate_to_group(), request_team() methods
+    - New: GroupOrchestrator role-based execution strategies
+
 Version: 5.1.0 (RFC-008: Quality Slider)
     - New: QualityManager for quality/cost tradeoff control
     - New: Quality presets (draft, economy, balanced, production, best)
@@ -46,7 +55,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.1.0"
+__version__ = "5.2.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -366,12 +375,19 @@ from llmteam.escalation import (
 )
 
 # RFC-004: GroupOrchestrator
+# RFC-009: Group Architecture Unification
 from llmteam.orchestration import (
     GroupOrchestrator,
     GroupRole,
     TeamReport,
     GroupReport,
     GroupResult,
+    # RFC-009: Team roles and context
+    TeamRole,
+    GroupContext,
+    EscalationRequest,
+    EscalationResponse,
+    EscalationAction,
 )
 
 # RFC-005: Configuration (CONFIGURATOR mode)
@@ -672,11 +688,18 @@ __all__ = [
     "LevelFilterHandler",
 
     # RFC-004: GroupOrchestrator
+    # RFC-009: Group Architecture Unification
     "GroupOrchestrator",
     "GroupRole",
     "TeamReport",
     "GroupReport",
     "GroupResult",
+    # RFC-009: Team roles and context
+    "TeamRole",
+    "GroupContext",
+    "EscalationRequest",
+    "EscalationResponse",
+    # Note: EscalationAction already exported from escalation module
 
     # RFC-005: Configuration (CONFIGURATOR mode)
     "SessionState",

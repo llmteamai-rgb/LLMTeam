@@ -11,6 +11,7 @@ import uuid
 if TYPE_CHECKING:
     from llmteam.configuration import ConfigurationSession
     from llmteam.quality import CostEstimate
+    from llmteam.orchestration.models import GroupContext, EscalationResponse
 
 from llmteam.agents.factory import AgentFactory
 from llmteam.agents.config import AgentConfig
@@ -101,6 +102,9 @@ class LLMTeam:
         self._current_run_id: Optional[str] = None
         self._event_callbacks: Dict[str, List[Callable]] = {}
         self._mailbox: Dict[str, Any] = {}
+
+        # RFC-009: Group context (None if not in a group)
+        self._group_context: Optional["GroupContext"] = None
 
         # Create agents from config
         if agents:
@@ -680,6 +684,137 @@ class LLMTeam:
             leader=self,
             teams=teams,
             model=self._model,
+        )
+
+    # RFC-009: Group Integration
+
+    def _join_group(self, context: "GroupContext") -> None:
+        """
+        INTERNAL: Called by GroupOrchestrator when adding team to group.
+
+        Do not call directly! Use GroupOrchestrator.add_team().
+
+        Args:
+            context: GroupContext with group info
+        """
+        self._group_context = context
+
+        # Notify TeamOrchestrator
+        if self._orchestrator and hasattr(self._orchestrator, "_set_group_context"):
+            self._orchestrator._set_group_context(context)
+
+    def _leave_group(self) -> None:
+        """
+        INTERNAL: Called by GroupOrchestrator when removing team from group.
+        """
+        if self._group_context:
+            self._group_context = None
+
+            if self._orchestrator and hasattr(self._orchestrator, "_clear_group_context"):
+                self._orchestrator._clear_group_context()
+
+    @property
+    def is_in_group(self) -> bool:
+        """Is team part of a group? (RFC-009)"""
+        return self._group_context is not None
+
+    @property
+    def group_id(self) -> Optional[str]:
+        """Group ID (if team is in a group). (RFC-009)"""
+        return self._group_context.group_id if self._group_context else None
+
+    @property
+    def group_role(self) -> Optional[str]:
+        """Team's role in the group (if in a group). (RFC-009)"""
+        if self._group_context:
+            return self._group_context.team_role.value
+        return None
+
+    async def escalate_to_group(
+        self,
+        reason: str,
+        context: Optional[Dict[str, Any]] = None,
+        error: Optional[Exception] = None,
+        source_agent: Optional[str] = None,
+    ) -> "EscalationResponse":
+        """
+        Escalate issue to group orchestrator (RFC-009).
+
+        Args:
+            reason: Escalation reason
+            context: Additional context
+            error: Exception (if any)
+            source_agent: Source agent ID (if escalation from agent)
+
+        Returns:
+            EscalationResponse from GroupOrchestrator
+
+        Raises:
+            RuntimeError: If team is not in a group or escalation not allowed
+        """
+        from llmteam.orchestration.models import EscalationRequest, EscalationResponse, EscalationAction
+
+        if not self._group_context:
+            raise RuntimeError(
+                f"Team '{self.team_id}' is not in a group. Cannot escalate."
+            )
+
+        if not self._group_context.can_escalate:
+            raise RuntimeError(
+                f"Team '{self.team_id}' is not allowed to escalate."
+            )
+
+        request = EscalationRequest(
+            source_team_id=self.team_id,
+            source_agent_id=source_agent,
+            reason=reason,
+            context=context or {},
+            error=error,
+        )
+
+        if self._group_context.on_escalation:
+            return await self._group_context.on_escalation(request)
+
+        return await self._group_context.group_orchestrator._handle_escalation(request)
+
+    async def request_team(
+        self,
+        target_team_id: str,
+        task: Dict[str, Any],
+    ) -> Any:
+        """
+        Request execution from another team in the group (RFC-009).
+
+        Only available for LEADER and SPECIALIST roles.
+
+        Args:
+            target_team_id: Target team ID
+            task: Task data to execute
+
+        Returns:
+            Result from target team
+
+        Raises:
+            RuntimeError: If not in group
+            PermissionError: If not allowed to request teams
+            ValueError: If target team not visible
+        """
+        if not self._group_context:
+            raise RuntimeError(f"Team '{self.team_id}' is not in a group")
+
+        if not self._group_context.can_request_team:
+            raise PermissionError(
+                f"Team '{self.team_id}' (role={self._group_context.team_role.value}) "
+                f"is not allowed to request other teams"
+            )
+
+        if target_team_id not in self._group_context.visible_teams:
+            raise ValueError(f"Team '{target_team_id}' is not visible")
+
+        return await self._group_context.group_orchestrator.route_to_team(
+            source_team_id=self.team_id,
+            target_team_id=target_team_id,
+            task=task,
         )
 
     # Configuration (RFC-005)
