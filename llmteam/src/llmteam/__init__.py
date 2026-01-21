@@ -4,7 +4,7 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
-Version: 4.2.0 (RFC-008: Quality Slider)
+Version: 5.1.0 (RFC-008: Quality Slider)
     - New: QualityManager for quality/cost tradeoff control
     - New: Quality presets (draft, economy, balanced, production, best)
     - New: CostEstimate and CostEstimator for cost prediction
@@ -46,7 +46,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "4.2.0"
+__version__ = "5.1.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 

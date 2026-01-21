@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 4.2.0 (Quality Slider - RFC-008)
+- **Current version:** 5.1.0 (RFC-008: Quality Slider)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -226,7 +226,7 @@ summary = orchestrator.get_summary()  # Dict with stats
 report_text = orchestrator.generate_report()  # Markdown/JSON/text
 ```
 
-**LLMTeam Pattern (v4.2.0):** Team container with typed agents and quality control:
+**LLMTeam Pattern (v5.1.0):** Team container with typed agents and quality control:
 ```python
 from llmteam import LLMTeam
 
@@ -373,14 +373,14 @@ team = step_ctx.get_team("support")  # v3.0.0: Access teams
 3. **Sealed Data** — Only the owner agent can access sealed fields
 4. **Tenant Isolation** — Complete data separation between tenants
 
-## Migration from v4.1.0 to v4.2.0
+## Migration from v5.0.0 to v5.1.0
 
 ```python
-# v4.1.0 (still works)
+# v5.0.0 (still works)
 team = LLMTeam(team_id="support", agents=[...])
 result = await team.run(data)
 
-# v4.2.0 (RFC-008: Quality Slider)
+# v5.1.0 (RFC-008: Quality Slider)
 from llmteam import LLMTeam, QualityManager
 
 team = LLMTeam(
@@ -400,7 +400,7 @@ result = await team.run(data, importance="high")  # +20 quality
 # NEW: Access QualityManager
 manager = team.get_quality_manager()
 
-# Key additions in v4.2.0:
+# Key additions in v5.1.0:
 # - LLMTeam.quality property (0-100 or preset name)
 # - LLMTeam.max_cost_per_run property
 # - LLMTeam.estimate_cost() method
