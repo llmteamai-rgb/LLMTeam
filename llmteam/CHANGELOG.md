@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-01-21
+
+### Added
+
+- **TeamOrchestrator** - Отдельный класс-супервизор (не агент):
+  - `TeamOrchestrator` - Супервизор для команды агентов
+  - `OrchestratorMode` - Флаги режимов: SUPERVISOR, REPORTER, ROUTER, RECOVERY
+  - `OrchestratorScope` - TEAM или GROUP уровень
+  - `OrchestratorConfig` - Конфигурация оркестратора
+  - Пресеты: PASSIVE (по умолчанию), ACTIVE (с роутингом), FULL (все режимы)
+
+- **AgentReport** - Модель отчёта агента:
+  - Автоматическая отчётность агентов оркестратору после выполнения
+  - `AgentReport.create()` - Фабричный метод для создания отчёта
+  - `to_dict()`, `to_log_line()` - Сериализация
+
+- **ROUTER Mode** - Оркестратор выбирает агентов:
+  - `decide_next_agent()` - LLM выбирает следующего агента
+  - `decide_recovery()` - LLM принимает решение при ошибках
+  - Один агент на задачу (вместо вызова всех)
+
+- **Orchestrator Prompts** - Предустановленные промпты:
+  - `ROUTING_PROMPT` - Выбор следующего агента
+  - `ERROR_RECOVERY_PROMPT` - Восстановление при ошибках
+  - `REPORT_GENERATION_PROMPT` - Генерация отчётов
+
+- **RunResult Extensions**:
+  - `report` - Сгенерированный отчёт от оркестратора
+  - `summary` - Структурированная сводка выполнения
+
+### Changed
+
+- **LLMTeam** - Оркестратор вынесен из `_agents`:
+  - `_orchestrator` - Отдельное поле для TeamOrchestrator
+  - `get_orchestrator()` - Получить оркестратор
+  - `is_router_mode` - Проверка режима ROUTER
+  - `_run_router_mode()` - Выполнение с выбором агентов
+  - `_run_canvas_mode()` - Выполнение через Canvas (PASSIVE)
+
+- **BaseAgent** - Добавлен метод `_report()`:
+  - Автоматическая отправка отчёта оркестратору после `execute()`
+
+- **Backward Compatibility**:
+  - `orchestration=True` теперь включает режим ACTIVE (реальный роутинг)
+  - `flow="adaptive"` также включает ACTIVE режим
+
+### Fixed
+
+- **Orchestrator Actually Routes** - Оркестратор теперь реально выбирает агентов:
+  - В режиме ROUTER вызывается только выбранный агент
+  - Не все агенты вызываются последовательно
+
+### Breaking Changes
+
+- Роли, начинающиеся с `_`, теперь зарезервированы для внутреннего использования
+- `_has_orchestrator` удалён, используйте `get_orchestrator()` и `is_router_mode`
+
+---
+
 ## [4.0.0] - 2026-01-19
 
 ### Added
