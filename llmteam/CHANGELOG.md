@@ -130,6 +130,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bypasses `process()` protection by calling `_process()` directly
   - `from llmteam.testing import AgentTestHarness`
 
+### RFC-008: Quality Slider
+
+- **New: Quality Slider (0-100)** - Один параметр для управления качеством/стоимостью:
+  - `LLMTeam(quality=70)` - числовое значение (0-100)
+  - `LLMTeam(quality="production")` - именованный пресет
+  - Пресеты: `draft`=20, `economy`=30, `balanced`=50, `production`=75, `best`=95
+  - `quality="auto"` - автоматическое управление на основе бюджета
+
+- **New: quality/ module** (`llmteam.quality`):
+  - `QualityManager` - управление настройками качества
+  - `QualityPreset` - именованные пресеты (enum)
+  - `TaskComplexity` - уровни сложности задач (simple/medium/complex)
+  - `PipelineDepth` - глубина пайплайна (shallow/medium/deep)
+  - `CostEstimate` - результат оценки стоимости
+  - `CostEstimator` - оценка стоимости по качеству и сложности
+
+- **LLMTeam integration**:
+  - `team.quality` - property для чтения/записи
+  - `team.run(data, quality=90)` - override качества для запуска
+  - `team.run(data, importance="high")` - авто-корректировка качества
+  - `team.estimate_cost()` - оценка стоимости запуска
+  - `team.get_quality_manager()` - доступ к QualityManager
+  - `max_cost_per_run` - лимит стоимости (страховка)
+
+- **ConfigurationSession integration** (RFC-005):
+  - `session.set_quality(60)` - установка качества для конфигурации
+  - `session.preview()` - предпросмотр с оценкой стоимости
+  - `session.generate_pipeline()` - генерация оптимизированного пайплайна
+  - `PipelinePreview` - предпросмотр с агентами, flow и стоимостью
+
+- **Model Matrix** (качество + сложность → модель):
+  ```
+                  quality: 0-30    30-70      70-100
+  ─────────────────────────────────────────────────────
+  simple task:    mini        mini       4o
+  medium task:    mini        4o         4o-turbo
+  complex task:   4o          4o-turbo   4o-turbo
+  ```
+
+- **API**:
+  ```python
+  from llmteam import LLMTeam
+
+  # Один параметр для всего
+  team = LLMTeam(team_id="content", quality=70)
+
+  # Presets
+  team = LLMTeam(team_id="content", quality="production")  # =75
+
+  # Override per run
+  result = await team.run(data, quality=90)
+
+  # Cost estimation
+  estimate = await team.estimate_cost()
+  print(f"Cost: {estimate}")  # "$0.12 - $0.22"
+
+  # With CONFIGURATOR (RFC-005)
+  session = await team.configure(task="Generate report")
+  session.set_quality(60)
+  preview = await session.preview()
+  print(preview.estimated_cost)  # "$0.15 - $0.20"
+  ```
+
 ### Migration Guide
 
 **Imports (RFC-006):**
