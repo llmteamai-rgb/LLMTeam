@@ -48,6 +48,7 @@ TEST_MODULES = [
     "engine",       # v5.0.0 (formerly canvas)
     "providers",    # v2.0.3
     "testing",      # v2.0.3
+    "quality",      # RFC-008
 ]
 
 

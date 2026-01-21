@@ -38,6 +38,7 @@ from llmteam.configuration.models import (
     AgentSuggestion,
     TestRunResult,
     TaskAnalysis,
+    PipelinePreview,
 )
 
 from llmteam.configuration.prompts import ConfiguratorPrompts
@@ -50,6 +51,7 @@ __all__ = [
     "AgentSuggestion",
     "TestRunResult",
     "TaskAnalysis",
+    "PipelinePreview",
     # Prompts
     "ConfiguratorPrompts",
     # Session

@@ -193,3 +193,72 @@ class TaskAnalysis:
             complexity=data.get("complexity", "moderate"),
             raw_analysis=data.get("raw_analysis", ""),
         )
+
+
+@dataclass
+class PipelinePreview:
+    """
+    Preview of pipeline configuration (RFC-008).
+
+    Shows estimated cost and quality for current configuration.
+    """
+
+    quality: int
+    """Quality level (0-100)."""
+
+    agents: List[Dict[str, Any]]
+    """Agent configurations."""
+
+    flow: Optional[str]
+    """Flow definition."""
+
+    estimated_cost_min: float
+    """Minimum estimated cost in USD."""
+
+    estimated_cost_max: float
+    """Maximum estimated cost in USD."""
+
+    quality_stars: int
+    """Quality rating 1-5 stars."""
+
+    quality_label: str
+    """Quality label (e.g., "Good", "Excellent")."""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "quality": self.quality,
+            "agents": self.agents,
+            "flow": self.flow,
+            "estimated_cost": {
+                "min": self.estimated_cost_min,
+                "max": self.estimated_cost_max,
+            },
+            "quality_rating": {
+                "stars": self.quality_stars,
+                "label": self.quality_label,
+            },
+        }
+
+    @property
+    def estimated_cost(self) -> str:
+        """Formatted estimated cost string."""
+        return f"${self.estimated_cost_min:.2f} - ${self.estimated_cost_max:.2f}"
+
+    def __str__(self) -> str:
+        """Human-readable preview."""
+        stars = "⭐" * self.quality_stars
+        agents_str = "\n".join(
+            f"  {i+1}. {a['role']} ({a.get('model', 'default')}) — {a.get('prompt', '')[:50]}..."
+            for i, a in enumerate(self.agents)
+        )
+        return f"""Pipeline Preview (quality={self.quality}):
+
+Agents:
+{agents_str}
+
+Flow: {self.flow or 'sequential'}
+
+Estimated cost: {self.estimated_cost} per run
+Estimated quality: {stars} ({self.quality_label})
+"""

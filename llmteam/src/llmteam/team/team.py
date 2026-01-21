@@ -10,6 +10,7 @@ import uuid
 
 if TYPE_CHECKING:
     from llmteam.configuration import ConfigurationSession
+    from llmteam.quality import CostEstimate
 
 from llmteam.agents.factory import AgentFactory
 from llmteam.agents.config import AgentConfig
@@ -21,6 +22,7 @@ from llmteam.agents.orchestrator import (
 )
 from llmteam.team.result import RunResult, RunStatus, ContextMode
 from llmteam.team.snapshot import TeamSnapshot
+from llmteam.quality import QualityManager
 
 # Check if engine module is available
 try:
@@ -60,6 +62,8 @@ class LLMTeam:
         orchestration: bool = False,
         orchestrator: Optional[OrchestratorConfig] = None,
         timeout: Optional[int] = None,
+        quality: Union[int, str] = 50,
+        max_cost_per_run: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -74,12 +78,20 @@ class LLMTeam:
             orchestration: DEPRECATED. Use orchestrator=OrchestratorConfig(mode=ACTIVE)
             orchestrator: Orchestrator configuration (PASSIVE by default)
             timeout: Execution timeout in seconds
+            quality: Quality slider 0-100 or preset name (RFC-008)
+                     Presets: "draft"=20, "economy"=30, "balanced"=50,
+                     "production"=75, "best"=95, "auto"=adaptive
+            max_cost_per_run: Optional cost limit per run in USD (safety)
         """
         self.team_id = team_id
         self._flow = flow
         self._model = model
         self._context_mode = context_mode
         self._timeout = timeout
+        self._max_cost_per_run = max_cost_per_run
+
+        # Quality management (RFC-008)
+        self._quality_manager = QualityManager(quality)
 
         # Internal state
         self._agents: Dict[str, BaseAgent] = {}  # Only working agents
@@ -209,12 +221,73 @@ class LLMTeam:
             return False
         return self._orchestrator.is_router
 
+    # Quality Management (RFC-008)
+
+    @property
+    def quality(self) -> int:
+        """Get current quality level (0-100)."""
+        return self._quality_manager.quality
+
+    @quality.setter
+    def quality(self, value: Union[int, str]) -> None:
+        """Set quality level (0-100 or preset name)."""
+        self._quality_manager.quality = value
+
+    def get_quality_manager(self) -> QualityManager:
+        """Get the QualityManager instance."""
+        return self._quality_manager
+
+    async def estimate_cost(
+        self,
+        input_data: Optional[Dict[str, Any]] = None,
+        complexity: str = "medium",
+    ) -> "CostEstimate":
+        """
+        Estimate cost for a run (RFC-008).
+
+        Args:
+            input_data: Optional input data (for future token estimation)
+            complexity: Task complexity ("simple", "medium", "complex")
+
+        Returns:
+            CostEstimate with min/max range
+
+        Example:
+            estimate = await team.estimate_cost()
+            print(f"Estimated cost: ${estimate.min:.2f} - ${estimate.max:.2f}")
+        """
+        from llmteam.quality import CostEstimator
+
+        estimator = CostEstimator()
+
+        # If we have agents, use detailed estimation
+        if self._agents:
+            agents_config = [
+                {
+                    "role": agent.role,
+                    "model": getattr(agent, "model", self._model),
+                }
+                for agent in self._agents.values()
+            ]
+            return estimator.estimate_detailed(
+                quality=self.quality,
+                agents=agents_config,
+            )
+
+        # Otherwise use simple estimation
+        return estimator.estimate(
+            quality=self.quality,
+            complexity=complexity,
+        )
+
     # Execution
 
     async def run(
         self,
         input_data: Dict[str, Any],
         run_id: Optional[str] = None,
+        quality: Optional[Union[int, str]] = None,
+        importance: Optional[str] = None,
     ) -> RunResult:
         """
         Execute team.
@@ -225,6 +298,8 @@ class LLMTeam:
         Args:
             input_data: Input data for execution
             run_id: Optional run identifier
+            quality: Override quality for this run (0-100 or preset) (RFC-008)
+            importance: Task importance ("high", "medium", "low") adjusts quality
 
         Returns:
             RunResult with output and metadata
@@ -234,6 +309,13 @@ class LLMTeam:
         run_id = run_id or str(uuid.uuid4())
         self._current_run_id = run_id
         started_at = datetime.utcnow()
+
+        # Determine effective quality (RFC-008)
+        effective_quality = self.quality
+        if quality is not None:
+            effective_quality = QualityManager(quality).quality
+        elif importance is not None:
+            effective_quality = self._quality_manager.with_importance(importance)
 
         if not self._agents:
             return RunResult(
@@ -689,6 +771,8 @@ class LLMTeam:
             "flow": self._flow,
             "model": self._model,
             "context_mode": self._context_mode.value,
+            "quality": self.quality,
+            "max_cost_per_run": self._max_cost_per_run,
         }
 
     @classmethod
@@ -700,6 +784,8 @@ class LLMTeam:
             flow=config.get("flow", "sequential"),
             model=config.get("model", "gpt-4o-mini"),
             context_mode=ContextMode(config.get("context_mode", "shared")),
+            quality=config.get("quality", 50),
+            max_cost_per_run=config.get("max_cost_per_run"),
         )
 
     @classmethod

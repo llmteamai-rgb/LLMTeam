@@ -380,8 +380,19 @@ from llmteam.configuration import (
     AgentSuggestion,
     TestRunResult,
     TaskAnalysis,
+    PipelinePreview,
     ConfiguratorPrompts,
     ConfigurationSession,
+)
+
+# RFC-008: Quality Slider
+from llmteam.quality import (
+    QualityManager,
+    QualityPreset,
+    TaskComplexity,
+    PipelineDepth,
+    CostEstimate,
+    CostEstimator,
 )
 
 # v2.0.0: Three-Level Ports (RFC #7)
@@ -672,8 +683,17 @@ __all__ = [
     "AgentSuggestion",
     "TestRunResult",
     "TaskAnalysis",
+    "PipelinePreview",
     "ConfiguratorPrompts",
     "ConfigurationSession",
+
+    # RFC-008: Quality Slider
+    "QualityManager",
+    "QualityPreset",
+    "TaskComplexity",
+    "PipelineDepth",
+    "CostEstimate",
+    "CostEstimator",
 
     # Contract (v3.0.0)
     "TeamContract",

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from llmteam.configuration.models import (
     AgentSuggestion,
+    PipelinePreview,
     SessionState,
     TaskAnalysis,
     TestRunResult,
@@ -21,6 +22,7 @@ from llmteam.configuration.prompts import ConfiguratorPrompts
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
     from llmteam.runtime import LLMProvider
+    from llmteam.quality import QualityManager
 
 
 @dataclass
@@ -88,6 +90,10 @@ class ConfigurationSession:
     # State
     state: SessionState = SessionState.CREATED
     """Current session state."""
+
+    # Quality (RFC-008)
+    _quality: Optional[int] = None
+    """Quality level override (0-100). None = use team default."""
 
     # LLM provider (for configuration assistance)
     _llm_provider: Optional["LLMProvider"] = field(default=None, repr=False)
@@ -252,6 +258,142 @@ class ConfigurationSession:
         """
         self.current_flow = flow
         return self
+
+    # === Quality Methods (RFC-008) ===
+
+    def set_quality(self, quality: int) -> "ConfigurationSession":
+        """
+        Set quality level for the configuration (RFC-008).
+
+        Args:
+            quality: Quality level (0-100).
+                     0-30: Fast & cheap, basic output
+                     30-70: Balanced, good for most tasks
+                     70-100: Best quality, thorough analysis
+
+        Returns:
+            Self for chaining.
+        """
+        self._quality = max(0, min(100, int(quality)))
+        return self
+
+    @property
+    def quality(self) -> int:
+        """Get effective quality level."""
+        if self._quality is not None:
+            return self._quality
+        return self.team.quality
+
+    async def preview(self) -> PipelinePreview:
+        """
+        Preview the pipeline configuration with cost estimates (RFC-008).
+
+        Returns:
+            PipelinePreview with agents, flow, and cost estimates.
+
+        Example:
+            session.set_quality(60)
+            preview = await session.preview()
+            print(preview)
+            # Pipeline Preview (quality=60):
+            # Agents:
+            #   1. extractor (gpt-4o-mini) — Extract key metrics...
+            # Estimated cost: $0.15-0.20 per run
+        """
+        from llmteam.quality import QualityManager, CostEstimator
+
+        quality = self.quality
+        manager = QualityManager(quality)
+        estimator = CostEstimator()
+
+        # Determine models for agents based on quality
+        agents_with_models = []
+        complexity = self.task_analysis.complexity if self.task_analysis else "medium"
+
+        for agent in self.current_agents:
+            agent_copy = agent.copy()
+            if "model" not in agent_copy:
+                agent_copy["model"] = manager.get_model(complexity)
+            agents_with_models.append(agent_copy)
+
+        # Estimate cost
+        if agents_with_models:
+            estimate = estimator.estimate_detailed(
+                quality=quality,
+                agents=agents_with_models,
+            )
+        else:
+            estimate = estimator.estimate(quality=quality, complexity=complexity)
+
+        # Calculate quality rating
+        if quality >= 85:
+            stars, label = 5, "Excellent"
+        elif quality >= 70:
+            stars, label = 4, "Good"
+        elif quality >= 50:
+            stars, label = 3, "Adequate"
+        elif quality >= 30:
+            stars, label = 2, "Basic"
+        else:
+            stars, label = 1, "Minimal"
+
+        return PipelinePreview(
+            quality=quality,
+            agents=agents_with_models,
+            flow=self.current_flow,
+            estimated_cost_min=estimate.min_cost,
+            estimated_cost_max=estimate.max_cost,
+            quality_stars=stars,
+            quality_label=label,
+        )
+
+    async def generate_pipeline(self) -> Dict[str, Any]:
+        """
+        Generate optimized pipeline based on quality level (RFC-008).
+
+        Adjusts number of agents and models based on quality slider.
+
+        Returns:
+            Pipeline configuration dict.
+        """
+        from llmteam.quality import QualityManager
+
+        quality = self.quality
+        manager = QualityManager(quality)
+
+        # Get recommended pipeline depth
+        depth = manager.get_pipeline_depth()
+        min_agents, max_agents = manager.get_agent_count_range()
+
+        # Adjust current agents to match recommended depth
+        complexity = self.task_analysis.complexity if self.task_analysis else "medium"
+
+        # Update models based on quality
+        optimized_agents = []
+        for agent in self.current_agents[:max_agents]:
+            agent_copy = agent.copy()
+            agent_copy["model"] = manager.get_model(complexity)
+            # Apply generation params
+            gen_params = manager.get_generation_params()
+            if "max_tokens" not in agent_copy:
+                agent_copy["max_tokens"] = gen_params["max_tokens"]
+            if "temperature" not in agent_copy:
+                agent_copy["temperature"] = gen_params["temperature"]
+            optimized_agents.append(agent_copy)
+
+        # Estimate cost
+        estimate = manager.estimate_cost(complexity)
+
+        return {
+            "agents": optimized_agents,
+            "flow": self.current_flow,
+            "quality": quality,
+            "estimated_cost": {
+                "min": estimate[0],
+                "max": estimate[1],
+            },
+            "pipeline_depth": depth.value,
+        }
 
     # === Testing Methods ===
 
