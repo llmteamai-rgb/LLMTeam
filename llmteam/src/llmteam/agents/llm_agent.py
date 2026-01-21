@@ -91,13 +91,15 @@ class LLMAgent(BaseAgent):
 
         return formatted
 
-    async def process(
+    async def _execute(
         self,
         input_data: Dict[str, Any],
         context: Dict[str, Any],
     ) -> AgentResult:
         """
-        Generate text via LLM.
+        INTERNAL: Generate text via LLM.
+
+        Do NOT call directly - use team.run() instead.
 
         Args:
             input_data: Input data from team.run()

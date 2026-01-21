@@ -45,7 +45,7 @@ TEST_MODULES = [
     "persistence",  # v1.9.0
     "runtime",      # v2.0.0
     "events",       # v2.0.0
-    "canvas",       # v2.0.0
+    "engine",       # v5.0.0 (formerly canvas)
     "providers",    # v2.0.3
     "testing",      # v2.0.3
 ]

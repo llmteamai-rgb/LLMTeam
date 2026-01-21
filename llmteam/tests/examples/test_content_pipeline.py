@@ -87,11 +87,13 @@ class TestContentPipelineConfig:
 
         # Check that team was created successfully with orchestration
         assert team.team_id == "content"
-        # 3 user agents + 1 internal _orchestrator = 4 total
-        assert len(team.list_agents()) == 4
-        # Verify orchestrator was added
-        orchestrator = team.get_agent("_orchestrator")
+        # v4.1.0: Orchestrator is separate entity, not an agent
+        # So list_agents() returns only user agents (3)
+        assert len(team.list_agents()) == 3
+        # Verify orchestrator is present (via get_orchestrator, not get_agent)
+        orchestrator = team.get_orchestrator()
         assert orchestrator is not None
+        assert orchestrator.is_router  # orchestration=True enables ACTIVE mode
 
     def test_get_agent_by_role(self):
         """Should retrieve agents by role."""

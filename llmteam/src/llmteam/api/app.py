@@ -36,14 +36,18 @@ except ImportError:
     Limiter = None
 
 import llmteam
-from llmteam.canvas import (
-    SegmentDefinition,
+from llmteam.engine import (
+    WorkflowDefinition,
     StepDefinition,
     EdgeDefinition,
-    SegmentRunner,
-    SegmentResult,
+    ExecutionEngine,
+    ExecutionResult,
     StepCatalog,
 )
+# Backward compatibility aliases
+SegmentDefinition = WorkflowDefinition
+SegmentRunner = ExecutionEngine
+SegmentResult = ExecutionResult
 from llmteam.runtime import RuntimeContextFactory, RuntimeContext
 from llmteam.api.models import (
     RunRequest,
@@ -497,7 +501,7 @@ async def _run_segment(
 
     runner: SegmentRunner = app.state.runner
 
-    from llmteam.canvas import RunConfig
+    from llmteam.engine import RunConfig
 
     config = RunConfig(
         timeout=timedelta(seconds=timeout) if timeout else None,

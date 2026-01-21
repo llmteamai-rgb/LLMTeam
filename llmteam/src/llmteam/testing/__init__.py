@@ -12,6 +12,12 @@ Usage:
     # Run segment in test mode
     runner = SegmentTestRunner()
     result = await runner.run(segment, input_data)
+
+RFC-007: AgentTestHarness for testing agents in isolation:
+    from llmteam.testing import AgentTestHarness
+
+    harness = AgentTestHarness()
+    result = await harness.run_agent(agent, {"query": "test"})
 """
 
 from llmteam.testing.mocks import (
@@ -35,6 +41,7 @@ TestResult = SegmentTestResult
 from llmteam.testing.harness import (
     StepTestHarness,
     HandlerTestCase,
+    AgentTestHarness,  # RFC-007
 )
 
 __all__ = [
@@ -54,4 +61,5 @@ __all__ = [
     # Harness
     "StepTestHarness",
     "HandlerTestCase",
+    "AgentTestHarness",  # RFC-007
 ]

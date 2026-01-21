@@ -12,10 +12,10 @@ Usage:
 
     # Create a custom app
     from llmteam.api import create_app
-    from llmteam.canvas import SegmentRunner, StepCatalog
+    from llmteam.engine import ExecutionEngine, StepCatalog
 
-    runner = SegmentRunner()
-    app = create_app(runner=runner)
+    engine = ExecutionEngine()
+    app = create_app(runner=engine)
 
 Endpoints:
     GET  /api/v1/health              - Health check

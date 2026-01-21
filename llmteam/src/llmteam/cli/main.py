@@ -149,12 +149,14 @@ async def _run_segment_async(
 ) -> dict[str, Any]:
     """Run segment asynchronously."""
     try:
-        from llmteam.canvas import SegmentDefinition, SegmentRunner, RunConfig
+        from llmteam.engine import WorkflowDefinition, ExecutionEngine, RunConfig
         from llmteam.runtime import RuntimeContextManager
+        # Backward compatibility alias
+        SegmentDefinition = WorkflowDefinition
     except ImportError as e:
         return {
             "status": "failed",
-            "error": f"Missing dependencies for canvas execution: {e}",
+            "error": f"Missing dependencies for engine execution: {e}",
         }
 
     try:
@@ -266,10 +268,10 @@ def validate(segment_file: str, strict: bool) -> None:
 
     # Try to parse with Pydantic model
     try:
-        from llmteam.canvas import SegmentDefinition
-        SegmentDefinition.from_dict(segment_data)
+        from llmteam.engine import WorkflowDefinition
+        WorkflowDefinition.from_dict(segment_data)
     except ImportError:
-        warnings.append("Canvas module not available for full validation")
+        warnings.append("Engine module not available for full validation")
     except Exception as e:
         errors.append(f"Model validation failed: {e}")
 
@@ -319,7 +321,7 @@ def catalog(as_json: bool) -> None:
         llmteam catalog --json
     """
     try:
-        from llmteam.canvas import StepCatalog
+        from llmteam.engine import StepCatalog
         cat = StepCatalog.instance()
         types = {t.type_id: t for t in cat.list_all()}
     except ImportError:
@@ -414,7 +416,7 @@ def version() -> None:
     click.echo("\nInstalled components:")
 
     components = [
-        ("canvas", "llmteam.canvas"),
+        ("engine", "llmteam.engine"),
         ("runtime", "llmteam.runtime"),
         ("events", "llmteam.events"),
         ("api", "llmteam.api"),

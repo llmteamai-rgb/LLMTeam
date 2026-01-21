@@ -102,13 +102,13 @@ class TeamSnapshot:
         )
 
     def to_segment_snapshot(self):
-        """Convert to SegmentSnapshot for SegmentRunner."""
-        from llmteam.canvas.runner import SegmentSnapshot
+        """Convert to ExecutionSnapshot for ExecutionEngine."""
+        from llmteam.engine.engine import ExecutionSnapshot
 
-        return SegmentSnapshot(
+        return ExecutionSnapshot(
             snapshot_id=self.snapshot_id,
             run_id=self.run_id,
-            segment_id=self.team_id,
+            workflow_id=self.team_id,
             tenant_id="default",  # Will be overridden
             current_step=self.current_agent,
             completed_steps=self.completed_agents,

@@ -1,11 +1,15 @@
 """
 LLMTeam - Main team container.
 
-Orchestrates AI agents using SegmentRunner internally.
+Orchestrates AI agents using ExecutionEngine internally (if available).
+When engine module is not installed, only ROUTER mode works.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 import uuid
+
+if TYPE_CHECKING:
+    from llmteam.configuration import ConfigurationSession
 
 from llmteam.agents.factory import AgentFactory
 from llmteam.agents.config import AgentConfig
@@ -17,7 +21,15 @@ from llmteam.agents.orchestrator import (
 )
 from llmteam.team.result import RunResult, RunStatus, ContextMode
 from llmteam.team.snapshot import TeamSnapshot
-from llmteam.team.converters import build_segment, result_from_segment_result
+
+# Check if engine module is available
+try:
+    from llmteam.team.converters import build_segment, result_from_segment_result
+    _ENGINE_AVAILABLE = True
+except ImportError:
+    _ENGINE_AVAILABLE = False
+    build_segment = None  # type: ignore
+    result_from_segment_result = None  # type: ignore
 
 
 class LLMTeam:
@@ -272,9 +284,25 @@ class LLMTeam:
         """
         Run team in Canvas mode (PASSIVE orchestrator).
 
-        Canvas (SegmentRunner) controls the flow.
+        Canvas (ExecutionEngine) controls the flow.
+        Requires engine module: pip install llmteam-ai[engine]
         """
         from datetime import datetime
+
+        # Check if engine is available
+        if not _ENGINE_AVAILABLE:
+            return RunResult(
+                success=False,
+                status=RunStatus.FAILED,
+                error=(
+                    "Engine module not installed. Canvas mode requires: "
+                    "pip install llmteam-ai[engine]. "
+                    "Use ROUTER mode (orchestrator=OrchestratorConfig(mode=OrchestratorMode.ACTIVE)) "
+                    "for basic functionality without engine."
+                ),
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
+            )
 
         # Build segment from agents (orchestrator NOT included)
         segment = build_segment(
@@ -289,8 +317,8 @@ class LLMTeam:
         # Build runtime context
         runtime = self._build_runtime(run_id)
 
-        # Run segment
-        from llmteam.canvas.runner import RunConfig
+        # Run workflow
+        from llmteam.engine.engine import RunConfig
 
         config = RunConfig()
         if self._timeout:
@@ -417,9 +445,17 @@ class LLMTeam:
         """
         Pause execution and return snapshot.
 
+        Requires engine module: pip install llmteam-ai[engine]
+
         Returns:
             TeamSnapshot for resume
         """
+        if not _ENGINE_AVAILABLE:
+            raise RuntimeError(
+                "Engine module not installed. Pause/resume requires: "
+                "pip install llmteam-ai[engine]"
+            )
+
         if not self._current_run_id:
             raise RuntimeError("No active run to pause")
 
@@ -432,12 +468,20 @@ class LLMTeam:
         """
         Resume execution from snapshot.
 
+        Requires engine module: pip install llmteam-ai[engine]
+
         Args:
             snapshot: TeamSnapshot from pause()
 
         Returns:
             RunResult
         """
+        if not _ENGINE_AVAILABLE:
+            raise RuntimeError(
+                "Engine module not installed. Pause/resume requires: "
+                "pip install llmteam-ai[engine]"
+            )
+
         runner = self._get_runner()
 
         # Build segment
@@ -466,9 +510,17 @@ class LLMTeam:
         """
         Cancel current execution.
 
+        Requires engine module: pip install llmteam-ai[engine]
+
         Returns:
             True if cancelled successfully
         """
+        if not _ENGINE_AVAILABLE:
+            raise RuntimeError(
+                "Engine module not installed. Cancel requires: "
+                "pip install llmteam-ai[engine]"
+            )
+
         if not self._current_run_id:
             return False
 
@@ -548,6 +600,85 @@ class LLMTeam:
             model=self._model,
         )
 
+    # Configuration (RFC-005)
+
+    async def configure(
+        self,
+        task: str,
+        constraints: Optional[Dict[str, Any]] = None,
+    ) -> "ConfigurationSession":
+        """
+        Start configuration session via CONFIGURATOR mode (RFC-005).
+
+        Allows interactive team configuration with LLM assistance.
+
+        Args:
+            task: Task description in natural language
+            constraints: Task constraints (tone, length, format, etc.)
+
+        Returns:
+            ConfigurationSession for iterative configuration
+
+        Example:
+            session = await team.configure(
+                task="Generate LinkedIn posts from press releases",
+                constraints={"tone": "professional", "length": "<300"}
+            )
+
+            # Review suggestions
+            print(session.suggested_agents)
+
+            # Test
+            test = await session.test_run({"press_release": "..."})
+            print(test.analysis)
+
+            # Apply
+            await session.apply()
+        """
+        from llmteam.configuration import ConfigurationSession
+
+        # Enable CONFIGURATOR mode
+        if self._orchestrator:
+            self._orchestrator._config.mode |= OrchestratorMode.CONFIGURATOR
+
+        # Create session
+        session = ConfigurationSession(
+            session_id=str(uuid.uuid4()),
+            team=self,
+            task=task,
+            constraints=constraints or {},
+        )
+
+        # Analyze and suggest
+        await session.analyze()
+        await session.suggest()
+
+        return session
+
+    def remove_agent(self, agent_id: str) -> bool:
+        """
+        Remove agent from team.
+
+        Args:
+            agent_id: Agent ID to remove
+
+        Returns:
+            True if removed, False if not found
+        """
+        if agent_id in self._agents:
+            del self._agents[agent_id]
+            return True
+        return False
+
+    def set_flow(self, flow: Union[str, Dict]) -> None:
+        """
+        Set execution flow.
+
+        Args:
+            flow: Flow string ("a -> b -> c") or DAG dict
+        """
+        self._flow = flow
+
     # Serialization
 
     def to_config(self) -> Dict[str, Any]:
@@ -574,17 +705,28 @@ class LLMTeam:
     @classmethod
     def from_segment(cls, segment, team_id: Optional[str] = None) -> "LLMTeam":
         """
-        Create team from SegmentDefinition.
+        Create team from WorkflowDefinition (formerly SegmentDefinition).
+
+        Requires engine module: pip install llmteam-ai[engine]
 
         Args:
-            segment: SegmentDefinition
-            team_id: Optional team ID (default: segment_id)
+            segment: WorkflowDefinition
+            team_id: Optional team ID (default: workflow_id)
 
         Returns:
             LLMTeam
         """
+        if not _ENGINE_AVAILABLE:
+            raise RuntimeError(
+                "Engine module not installed. from_segment requires: "
+                "pip install llmteam-ai[engine]"
+            )
+
+        # Support both new (workflow_id) and old (segment_id) names
+        workflow_id = getattr(segment, 'workflow_id', None) or getattr(segment, 'segment_id', None)
+
         team = cls(
-            team_id=team_id or segment.segment_id,
+            team_id=team_id or workflow_id,
             flow={"edges": [e.to_dict() for e in segment.edges]},
         )
 
@@ -599,11 +741,20 @@ class LLMTeam:
     # Internal
 
     def _get_runner(self):
-        """Get or create SegmentRunner."""
-        if self._runner is None:
-            from llmteam.canvas.runner import SegmentRunner
+        """Get or create ExecutionEngine.
 
-            self._runner = SegmentRunner()
+        Requires engine module: pip install llmteam-ai[engine]
+        """
+        if not _ENGINE_AVAILABLE:
+            raise RuntimeError(
+                "Engine module not installed. Install with: "
+                "pip install llmteam-ai[engine]"
+            )
+
+        if self._runner is None:
+            from llmteam.engine.engine import ExecutionEngine
+
+            self._runner = ExecutionEngine()
         return self._runner
 
     def _build_runtime(self, run_id: str):

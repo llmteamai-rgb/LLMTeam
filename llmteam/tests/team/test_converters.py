@@ -12,7 +12,7 @@ from llmteam.team.converters import (
     agents_to_steps,
 )
 from llmteam.agents.types import AgentType
-from llmteam.canvas.runner import SegmentResult, SegmentStatus
+from llmteam.engine.engine import SegmentResult, SegmentStatus
 
 
 class TestParseFlowString:

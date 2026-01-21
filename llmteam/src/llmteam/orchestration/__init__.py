@@ -1,19 +1,28 @@
 """
 Orchestration module.
 
-DEPRECATED: In v4.0.0, orchestration is handled internally by LLMTeam.
+RFC-004: GroupOrchestrator for multi-team coordination.
+
+Contains:
+    - GroupOrchestrator: Coordinates multiple LLMTeams
+    - GroupRole: Roles for GroupOrchestrator (MVP: REPORT_COLLECTOR)
+    - TeamReport, GroupReport, GroupResult: Report dataclasses
+
+Legacy (deprecated in v4.0.0):
+    - OrchestrationMode, OrchestrationStrategy, etc.
 
 Use instead:
     - llmteam.team.LLMTeam: Main team container with agents
-    - llmteam.team.LLMGroup: Multi-team coordination
-    - llmteam.agents.create_orchestrator_config: Create orchestrator agent
-
-Orchestration is now just an LLMAgent with a specialized prompt.
+    - llmteam.orchestration.GroupOrchestrator: Multi-team coordination
 """
 
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
+
+# RFC-004: GroupOrchestrator
+from llmteam.orchestration.group import GroupOrchestrator, GroupRole
+from llmteam.orchestration.reports import TeamReport, GroupReport, GroupResult
 
 
 class OrchestrationMode(Enum):
@@ -56,6 +65,13 @@ class OrchestrationDecision:
 
 
 __all__ = [
+    # RFC-004: GroupOrchestrator
+    "GroupOrchestrator",
+    "GroupRole",
+    "TeamReport",
+    "GroupReport",
+    "GroupResult",
+    # Legacy (deprecated)
     "OrchestrationMode",
     "OrchestrationStrategy",
     "SequentialStrategy",

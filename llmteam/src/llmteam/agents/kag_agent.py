@@ -60,13 +60,15 @@ class KAGAgent(BaseAgent):
         self.entity_types = config.entity_types
         self.deliver_to = config.deliver_to
 
-    async def process(
+    async def _execute(
         self,
         input_data: Dict[str, Any],
         context: Dict[str, Any],
     ) -> KAGResult:
         """
-        Retrieval from knowledge graph.
+        INTERNAL: Retrieval from knowledge graph.
+
+        Do NOT call directly - use team.run() instead.
 
         Args:
             input_data: Must contain "query" or entities for search

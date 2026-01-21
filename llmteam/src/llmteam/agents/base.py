@@ -3,6 +3,11 @@ Base agent class.
 
 Internal abstract base class - NOT exported in public API.
 Agents are created only via LLMTeam.add_agent().
+
+RFC-007: Agent Encapsulation
+- Direct agent.process() is FORBIDDEN - raises RuntimeError
+- Use team.run() instead for proper logging, reporting, and flow control
+- _process() is internal, called only by TeamOrchestrator
 """
 
 from abc import ABC, abstractmethod
@@ -26,10 +31,13 @@ class BaseAgent(ABC):
     INTERNAL CLASS - not exported in public API.
     Agents are created only via LLMTeam.add_agent().
 
-    Contract:
+    RFC-007 Contract:
     - agent_type: type of agent (LLM, RAG, KAG)
     - _team: required reference to team
-    - process(): main execution method
+    - _execute(): abstract method for subclass implementation
+    - _process(): internal execution (orchestrator only)
+    - process(): FORBIDDEN - raises RuntimeError
+    - __call__(): FORBIDDEN - raises RuntimeError
     """
 
     # Class Attributes (overridden in subclasses)
@@ -99,13 +107,16 @@ class BaseAgent(ABC):
     # Abstract Methods
 
     @abstractmethod
-    async def process(
+    async def _execute(
         self,
         input_data: Dict[str, Any],
         context: Dict[str, Any],
     ) -> AgentResult:
         """
-        Main execution method.
+        INTERNAL: Subclass implementation.
+
+        Override this method in subclasses to implement agent logic.
+        Do NOT call directly - use team.run() instead.
 
         Args:
             input_data: Input data (from team.run())
@@ -130,18 +141,52 @@ class BaseAgent(ABC):
         """Hook: on error."""
         pass
 
-    # Execution Wrapper (called by TeamRunner)
+    # Forbidden Methods (RFC-007)
 
-    async def execute(
+    async def process(
+        self,
+        input_data: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> AgentResult:
+        """
+        FORBIDDEN: Direct agent.process() is not allowed.
+
+        Use team.run() instead to ensure proper logging, reporting,
+        and flow control through the orchestrator.
+
+        Raises:
+            RuntimeError: Always. Use team.run() instead.
+        """
+        raise RuntimeError(
+            f"Direct call to {self.__class__.__name__}.process() is forbidden. "
+            f"Use team.run() instead to ensure proper logging, reporting, and flow control."
+        )
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """
+        FORBIDDEN: Direct agent call is not allowed.
+
+        Raises:
+            RuntimeError: Always. Use team.run() instead.
+        """
+        raise RuntimeError(
+            f"Direct call to {self.__class__.__name__}() is forbidden. "
+            f"Use team.run() instead."
+        )
+
+    # Internal Execution (called by TeamOrchestrator only)
+
+    async def _process(
         self,
         input_data: Dict[str, Any],
         context: Dict[str, Any],
         run_id: str,
     ) -> AgentResult:
         """
-        Execution wrapper with lifecycle hooks.
+        INTERNAL: Execution wrapper with lifecycle hooks.
 
-        Called by TeamRunner, not directly.
+        Called ONLY by TeamOrchestrator/TeamRunner, never directly.
+        Do NOT call this method from user code - use team.run() instead.
         """
         started_at = datetime.utcnow()
 
@@ -158,8 +203,8 @@ class BaseAgent(ABC):
             # Pre-hook
             await self.on_start(self._state)
 
-            # Execute
-            result = await self.process(input_data, context)
+            # Execute (calls subclass implementation)
+            result = await self._execute(input_data, context)
             result.agent_id = self.agent_id
             result.agent_type = self.agent_type
 
@@ -201,6 +246,26 @@ class BaseAgent(ABC):
                 success=False,
                 error=str(e),
             )
+
+    # Backward compatibility alias (deprecated)
+    async def execute(
+        self,
+        input_data: Dict[str, Any],
+        context: Dict[str, Any],
+        run_id: str,
+    ) -> AgentResult:
+        """
+        DEPRECATED: Use _process() instead.
+
+        This method exists for backward compatibility and will be removed.
+        """
+        import warnings
+        warnings.warn(
+            "BaseAgent.execute() is deprecated, internal code should use _process()",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return await self._process(input_data, context, run_id)
 
     # Reporting (to orchestrator)
 

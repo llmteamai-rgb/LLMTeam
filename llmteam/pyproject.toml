@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmteam-ai"
-version = "4.0.0"
+version = "5.0.0"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
 license = "Apache-2.0"
@@ -58,6 +58,10 @@ api = [
 ]
 validation = [
     "jsonschema>=4.20.0",
+]
+engine = [
+    # Engine module is pure Python with no additional dependencies
+    # This extra exists to support conditional installation: pip install llmteam-ai[engine]
 ]
 logging = [
     "structlog>=24.1.0",

@@ -288,7 +288,7 @@ def get_logger(name: str | None = None) -> "StructuredLogger":
     Get a structured logger.
 
     Args:
-        name: Logger name (e.g., "llmteam.runner", "llmteam.canvas")
+        name: Logger name (e.g., "llmteam.runner", "llmteam.engine")
 
     Returns:
         StructuredLogger instance

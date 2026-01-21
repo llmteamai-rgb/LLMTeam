@@ -1,12 +1,19 @@
 """
-Step Test Harness.
+Test Harnesses.
 
-Provides utilities for testing individual step handlers.
+Provides utilities for testing step handlers and agents.
+
+RFC-007: AgentTestHarness allows testing agents in isolation
+by calling _process() directly (bypassing the process() protection).
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Callable, Awaitable
+from typing import Any, Optional, Callable, Awaitable, TYPE_CHECKING
 import asyncio
+
+if TYPE_CHECKING:
+    from llmteam.agents.base import BaseAgent
+    from llmteam.agents.result import AgentResult
 
 
 @dataclass
@@ -94,7 +101,7 @@ class StepTestHarness:
         Returns:
             dict with keys: passed, output, error, case_name
         """
-        from llmteam.canvas import StepDefinition
+        from llmteam.engine import StepDefinition
         from llmteam.runtime import RuntimeContextFactory
         from llmteam.testing.mocks import MockLLMProvider, MockStore
 
@@ -222,7 +229,7 @@ class StepTestHarness:
         Returns:
             Configured harness.
         """
-        from llmteam.canvas.handlers import TransformHandler
+        from llmteam.engine.handlers import TransformHandler
 
         harness = cls(
             handler=TransformHandler(),
@@ -257,7 +264,7 @@ class StepTestHarness:
         Returns:
             Configured harness.
         """
-        from llmteam.canvas.handlers import ConditionHandler
+        from llmteam.engine.handlers import ConditionHandler
 
         harness = cls(
             handler=ConditionHandler(),
@@ -275,3 +282,153 @@ class StepTestHarness:
             )
 
         return harness
+
+
+# =============================================================================
+# RFC-007: Agent Test Harness
+# =============================================================================
+
+
+class AgentTestHarness:
+    """
+    Test harness for agents (RFC-007).
+
+    Allows testing agents in isolation by calling _process() directly,
+    bypassing the process() protection.
+
+    Usage:
+        from llmteam.testing import AgentTestHarness
+
+        harness = AgentTestHarness()
+
+        # Create agent via team (required)
+        team = LLMTeam(team_id="test")
+        team.add_agent({"role": "writer", "type": "llm", "prompt": "..."})
+        agent = team.get_agent("writer")
+
+        # Test agent via harness
+        result = await harness.run_agent(agent, {"query": "test"})
+        assert result.success
+    """
+
+    def __init__(self, run_id: str = "test_run") -> None:
+        """
+        Initialize the agent test harness.
+
+        Args:
+            run_id: Run ID for the test execution.
+        """
+        self.run_id = run_id
+
+    async def run_agent(
+        self,
+        agent: "BaseAgent",
+        input_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> "AgentResult":
+        """
+        Run agent in test mode (bypasses process() protection).
+
+        This method calls agent._process() directly, which is normally
+        only callable by TeamOrchestrator.
+
+        Args:
+            agent: The agent to test.
+            input_data: Input data for the agent.
+            context: Optional context (default: empty dict).
+
+        Returns:
+            AgentResult from the agent execution.
+
+        Example:
+            harness = AgentTestHarness()
+            result = await harness.run_agent(agent, {"query": "test"})
+        """
+        return await agent._process(
+            input_data=input_data,
+            context=context or {},
+            run_id=self.run_id,
+        )
+
+    async def run_agent_expect_error(
+        self,
+        agent: "BaseAgent",
+        input_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+        expected_error: Optional[str] = None,
+    ) -> "AgentResult":
+        """
+        Run agent expecting an error result.
+
+        Args:
+            agent: The agent to test.
+            input_data: Input data for the agent.
+            context: Optional context.
+            expected_error: Expected error substring (if any).
+
+        Returns:
+            AgentResult (should have success=False).
+
+        Raises:
+            AssertionError: If agent succeeds or error doesn't match.
+        """
+        result = await self.run_agent(agent, input_data, context)
+
+        if result.success:
+            raise AssertionError(
+                f"Expected agent to fail but it succeeded. "
+                f"Output: {result.output}"
+            )
+
+        if expected_error and expected_error not in str(result.error):
+            raise AssertionError(
+                f"Expected error containing '{expected_error}', "
+                f"got: {result.error}"
+            )
+
+        return result
+
+    async def assert_agent_output(
+        self,
+        agent: "BaseAgent",
+        input_data: dict[str, Any],
+        expected_output: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> "AgentResult":
+        """
+        Run agent and assert output matches expected.
+
+        Args:
+            agent: The agent to test.
+            input_data: Input data for the agent.
+            expected_output: Expected output (partial match).
+            context: Optional context.
+
+        Returns:
+            AgentResult.
+
+        Raises:
+            AssertionError: If output doesn't match.
+        """
+        result = await self.run_agent(agent, input_data, context)
+
+        if not result.success:
+            raise AssertionError(
+                f"Expected agent to succeed but it failed. "
+                f"Error: {result.error}"
+            )
+
+        # Check expected output
+        for key, expected_value in expected_output.items():
+            if isinstance(result.output, dict):
+                actual_value = result.output.get(key)
+            else:
+                actual_value = result.output if key == "output" else None
+
+            if actual_value != expected_value:
+                raise AssertionError(
+                    f"Output mismatch for '{key}': "
+                    f"expected {expected_value!r}, got {actual_value!r}"
+                )
+
+        return result

@@ -1,16 +1,17 @@
 """
 Converters for team execution.
 
-Converts agents and flow definitions to SegmentDefinition for SegmentRunner.
+Converts agents and flow definitions to WorkflowDefinition for ExecutionEngine.
 """
 
 from typing import Any, Dict, List, Optional, Union
 import re
 
-from llmteam.canvas.models import (
+from llmteam.engine.models import (
     StepDefinition,
     EdgeDefinition,
-    SegmentDefinition,
+    WorkflowDefinition,
+    SegmentDefinition,  # Backward compatibility wrapper
 )
 
 
@@ -243,7 +244,9 @@ def result_from_segment_result(segment_result, agents_map: Dict[str, Any]):
         RunResult
     """
     from llmteam.team.result import RunResult, RunStatus
-    from llmteam.canvas.runner import SegmentStatus
+    from llmteam.engine.engine import ExecutionStatus
+    # Backward compatibility alias
+    SegmentStatus = ExecutionStatus
 
     # Map status
     status_map = {

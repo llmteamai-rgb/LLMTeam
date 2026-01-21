@@ -5,6 +5,170 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-01-21
+
+### Breaking Changes
+
+- **RFC-006: Canvas → Optional Engine Module**
+  - Renamed `canvas/` directory to `engine/`
+  - Renamed `runner.py` to `engine.py`
+  - Renamed all `Segment*` classes to `Execution*/Workflow*`:
+    - `SegmentRunner` → `ExecutionEngine`
+    - `SegmentDefinition` → `WorkflowDefinition`
+    - `SegmentResult` → `ExecutionResult`
+    - `SegmentStatus` → `ExecutionStatus`
+    - `SegmentSnapshot` → `ExecutionSnapshot`
+    - `SegmentSnapshotStore` → `ExecutionSnapshotStore`
+    - `SegmentParams` → `WorkflowParams`
+    - `CanvasError` → `EngineError`
+    - `SegmentValidationError` → `WorkflowValidationError`
+    - `segment_id` → `workflow_id` in `WorkflowDefinition`
+
+- **Engine is now optional**:
+  - Install with: `pip install llmteam-ai[engine]`
+  - LLMTeam works in ROUTER mode without engine
+  - Canvas mode requires engine module
+
+### Added
+
+- **Optional Engine Module** (`llmteam.engine`):
+  - Can be installed separately: `pip install llmteam-ai[engine]`
+  - Lazy imports - library works without engine installed
+  - `_ENGINE_AVAILABLE` flag to check availability
+
+- **Backward Compatibility Aliases**:
+  - All old class names still work (deprecated)
+  - `from llmteam import SegmentRunner` still imports `ExecutionEngine`
+  - `SegmentDefinition` is alias for `WorkflowDefinition`
+  - `segment_id` property returns `workflow_id` (deprecated)
+
+- **LLMTeam without Engine**:
+  - ROUTER mode works without engine installation
+  - Canvas mode provides clear error message if engine not installed
+  - `pause()`, `resume()`, `cancel()` require engine
+
+### Changed
+
+- **Import paths**:
+  - Old: `from llmteam.canvas import ...`
+  - New: `from llmteam.engine import ...`
+
+- **Version**: Updated to 5.0.0
+
+### RFC-004: GroupOrchestrator
+
+- **New: GroupOrchestrator** - Координатор для нескольких LLMTeam:
+  - `GroupOrchestrator` - Управляет группой команд
+  - `GroupRole.REPORT_COLLECTOR` - MVP роль (собирает отчёты)
+  - `GroupReport` - Агрегированный отчёт по группе
+  - `TeamReport` - Отчёт от отдельной команды
+  - `GroupResult` - Результат выполнения группы
+  - Поддержка параллельного и последовательного выполнения
+
+- **API**:
+  ```python
+  from llmteam.orchestration import GroupOrchestrator
+
+  orch = GroupOrchestrator(group_id="my_group")
+  orch.add_team(team1)
+  orch.add_team(team2)
+
+  result = await orch.execute({"query": "..."})
+  print(result.report.summary)
+  ```
+
+### RFC-005: CONFIGURATOR Mode
+
+- **New: ConfigurationSession** - Интерактивная настройка команды:
+  - `team.configure(task)` - Запуск сессии конфигурации
+  - `SessionState` - Состояния сессии (CREATED, ANALYZING, etc.)
+  - `AgentSuggestion` - Предложение агента от LLM
+  - `TestRunResult` - Результат тестового запуска
+  - `TaskAnalysis` - Анализ задачи
+
+- **New: ConfiguratorPrompts** - Промпты для конфигурации:
+  - `TASK_ANALYSIS` - Анализ задачи пользователя
+  - `TEAM_SUGGESTION` - Предложение состава команды
+  - `TEST_ANALYSIS` - Анализ тестового запуска
+
+- **New: OrchestratorMode.CONFIGURATOR**:
+  - Новый режим в TeamOrchestrator
+  - Пресет `ASSISTED = CONFIGURATOR | PASSIVE`
+
+- **API**:
+  ```python
+  team = LLMTeam(team_id="content")
+
+  session = await team.configure(
+      task="Generate LinkedIn posts from press releases",
+      constraints={"tone": "professional"}
+  )
+
+  print(session.suggested_agents)  # [writer, reviewer, ...]
+  print(session.suggested_flow)    # "writer -> reviewer"
+
+  test = await session.test_run({"press_release": "..."})
+  print(test.analysis)
+
+  await session.apply()  # Apply configuration to team
+  ```
+
+### RFC-007: Agent Encapsulation
+
+- **BREAKING: Direct agent.process() is now forbidden**:
+  - `agent.process()` raises `RuntimeError`
+  - `agent()` (direct call) raises `RuntimeError`
+  - Use `team.run()` instead for proper logging, reporting, and flow control
+
+- **Internal API changes**:
+  - `process()` renamed to `_execute()` (abstract, for subclass implementation)
+  - `execute()` renamed to `_process()` (internal, for orchestrator)
+  - `execute()` kept as deprecated alias for `_process()`
+
+- **New: AgentTestHarness**:
+  - Allows testing agents in isolation
+  - Bypasses `process()` protection by calling `_process()` directly
+  - `from llmteam.testing import AgentTestHarness`
+
+### Migration Guide
+
+**Imports (RFC-006):**
+```python
+# Old imports (still work but deprecated)
+from llmteam.canvas import SegmentRunner, SegmentDefinition
+from llmteam import SegmentRunner, SegmentStatus
+
+# New imports (recommended)
+from llmteam.engine import ExecutionEngine, WorkflowDefinition
+from llmteam import ExecutionEngine, ExecutionStatus
+
+# Backward compatible usage
+workflow = WorkflowDefinition(
+    workflow_id="my_workflow",  # or segment_id= still works
+    ...
+)
+engine = ExecutionEngine()  # or SegmentRunner() still works
+result = await engine.run(workflow, ...)
+```
+
+**Agent Calls (RFC-007):**
+```python
+# BEFORE (v4.x) - worked but incorrect
+agent = team.get_agent("writer")
+result = await agent.process({"text": "..."})  # Direct call
+
+# AFTER (v5.0) - correct way
+result = await team.run({"text": "..."})  # Via orchestrator
+
+# For unit testing agents
+from llmteam.testing import AgentTestHarness
+
+harness = AgentTestHarness()
+result = await harness.run_agent(agent, {"text": "..."})
+```
+
+---
+
 ## [4.1.0] - 2026-01-21
 
 ### Added

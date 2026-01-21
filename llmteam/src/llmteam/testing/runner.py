@@ -118,7 +118,7 @@ class SegmentTestRunner:
             MockEventEmitter,
         )
         from llmteam.runtime import RuntimeContextFactory
-        from llmteam.canvas import SegmentRunner, SegmentStatus
+        from llmteam.engine import ExecutionEngine, ExecutionStatus
 
         run_config = config or self._config
         start_time = datetime.now()
@@ -144,8 +144,8 @@ class SegmentTestRunner:
             instance_id=f"test-{datetime.now().isoformat()}",
         )
 
-        # Create segment runner
-        runner = SegmentRunner(event_emitter=mock_emitter)
+        # Create execution engine
+        runner = ExecutionEngine(event_emitter=mock_emitter)
 
         # Register custom handlers
         for step_type, handler in self._custom_handlers.items():
@@ -169,7 +169,7 @@ class SegmentTestRunner:
                     "output": result.step_outputs.get(step.step_id),
                 }
 
-            success = result.status == SegmentStatus.COMPLETED
+            success = result.status == ExecutionStatus.COMPLETED
 
             if not success and result.error:
                 error = str(result.error)
@@ -219,11 +219,11 @@ class SegmentTestRunner:
         Returns:
             Step output.
         """
-        from llmteam.canvas import SegmentDefinition, EdgeDefinition
+        from llmteam.engine import WorkflowDefinition, EdgeDefinition
 
-        # Wrap step in minimal segment
-        segment = SegmentDefinition(
-            segment_id="test_segment",
+        # Wrap step in minimal workflow
+        segment = WorkflowDefinition(
+            workflow_id="test_segment",
             name="Test Segment",
             entrypoint=step.step_id,
             steps=[step],

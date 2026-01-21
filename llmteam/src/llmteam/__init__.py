@@ -4,18 +4,26 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 5.0.0 (RFC-006: Canvas → Optional Engine)
+    - BREAKING: Renamed canvas/ → engine/ module
+    - BREAKING: Renamed Segment* → Execution*/Workflow* classes
+    - New: Engine is now optional (pip install llmteam-ai[engine])
+    - New: ExecutionEngine (formerly SegmentRunner)
+    - New: WorkflowDefinition (formerly SegmentDefinition)
+    - New: ExecutionResult (formerly SegmentResult)
+    - Backward compatibility aliases for all renamed classes
+
 Version: 4.1.0 (Orchestrator Architecture Refactoring)
     - New: TeamOrchestrator as separate supervisor (not agent)
     - New: OrchestratorMode (SUPERVISOR, REPORTER, ROUTER, RECOVERY)
     - New: AgentReport for automatic agent reporting
     - New: ROUTER mode enables orchestrator to select agents
     - New: RunResult.report and RunResult.summary
-    - Fixed: orchestration=True now properly routes to selected agents
 
 Version: 4.0.0 (Agent Architecture Refactoring)
     - New: Typed agents (LLMAgent, RAGAgent, KAGAgent)
     - New: AgentFactory for creating agents
-    - New: LLMTeam uses SegmentRunner internally
+    - New: LLMTeam uses ExecutionEngine internally
     - New: LLMGroup for multi-team coordination
 
 License Tiers:
@@ -38,7 +46,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "4.1.0"
+__version__ = "5.0.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -192,38 +200,91 @@ from llmteam.events import (
     EventStream,
 )
 
-# v2.0.0: Canvas Integration
-from llmteam.canvas import (
-    # Models
-    PortDefinition,
-    StepPosition,
-    StepUIMetadata,
-    StepDefinition,
-    EdgeDefinition,
-    SegmentParams,
-    SegmentDefinition,
-    # Catalog
-    StepCategory,
-    PortSpec,
-    StepTypeMetadata,
-    StepCatalog,
-    # Runner
-    SegmentStatus,
-    SegmentResult,
-    RunConfig,
-    SegmentRunner,
-    SegmentSnapshot,
-    SegmentSnapshotStore,
-    # Handlers
-    HumanTaskHandler,
-    create_human_task_handler,
-    # Exceptions
-    CanvasError,
-    SegmentValidationError,
-    StepTypeNotFoundError,
-    InvalidStepConfigError,
-    InvalidConditionError,
-)
+# v2.0.0: Canvas Integration (now Engine)
+# v5.0.0: Renamed canvas → engine, made optional (pip install llmteam-ai[engine])
+try:
+    from llmteam.engine import (
+        # Models - New names (v5.0.0)
+        PortDefinition,
+        StepPosition,
+        StepUIMetadata,
+        StepDefinition,
+        EdgeDefinition,
+        WorkflowParams,
+        WorkflowDefinition,
+        # Models - Backward compatibility aliases
+        SegmentParams,
+        SegmentDefinition,
+        # Catalog
+        StepCategory,
+        PortSpec,
+        StepTypeMetadata,
+        StepCatalog,
+        # Engine - New names (v5.0.0)
+        ExecutionStatus,
+        ExecutionResult,
+        ExecutionEngine,
+        ExecutionSnapshot,
+        ExecutionSnapshotStore,
+        RunConfig,
+        # Engine - Backward compatibility aliases
+        SegmentStatus,
+        SegmentResult,
+        SegmentRunner,
+        SegmentSnapshot,
+        SegmentSnapshotStore,
+        # Handlers
+        HumanTaskHandler,
+        create_human_task_handler,
+        # Exceptions - New names (v5.0.0)
+        EngineError,
+        WorkflowValidationError,
+        # Exceptions - Backward compatibility aliases
+        CanvasError,
+        SegmentValidationError,
+        # Other exceptions
+        StepTypeNotFoundError,
+        InvalidStepConfigError,
+        InvalidConditionError,
+    )
+    _ENGINE_AVAILABLE = True
+except ImportError:
+    _ENGINE_AVAILABLE = False
+    # Engine module not installed - these will be None
+    # Users should use: from llmteam.engine import ... directly after pip install llmteam-ai[engine]
+    PortDefinition = None  # type: ignore
+    StepPosition = None  # type: ignore
+    StepUIMetadata = None  # type: ignore
+    StepDefinition = None  # type: ignore
+    EdgeDefinition = None  # type: ignore
+    WorkflowParams = None  # type: ignore
+    WorkflowDefinition = None  # type: ignore
+    SegmentParams = None  # type: ignore
+    SegmentDefinition = None  # type: ignore
+    StepCategory = None  # type: ignore
+    PortSpec = None  # type: ignore
+    StepTypeMetadata = None  # type: ignore
+    StepCatalog = None  # type: ignore
+    ExecutionStatus = None  # type: ignore
+    ExecutionResult = None  # type: ignore
+    ExecutionEngine = None  # type: ignore
+    ExecutionSnapshot = None  # type: ignore
+    ExecutionSnapshotStore = None  # type: ignore
+    RunConfig = None  # type: ignore
+    SegmentStatus = None  # type: ignore
+    SegmentResult = None  # type: ignore
+    SegmentRunner = None  # type: ignore
+    SegmentSnapshot = None  # type: ignore
+    SegmentSnapshotStore = None  # type: ignore
+    HumanTaskHandler = None  # type: ignore
+    create_human_task_handler = None  # type: ignore
+    EngineError = None  # type: ignore
+    WorkflowValidationError = None  # type: ignore
+    CanvasError = None  # type: ignore
+    SegmentValidationError = None  # type: ignore
+    StepTypeNotFoundError = None  # type: ignore
+    InvalidStepConfigError = None  # type: ignore
+    InvalidConditionError = None  # type: ignore
 
 # v2.0.0: Patterns
 from llmteam.patterns import (
@@ -304,6 +365,25 @@ from llmteam.escalation import (
     LevelFilterHandler,
 )
 
+# RFC-004: GroupOrchestrator
+from llmteam.orchestration import (
+    GroupOrchestrator,
+    GroupRole,
+    TeamReport,
+    GroupReport,
+    GroupResult,
+)
+
+# RFC-005: Configuration (CONFIGURATOR mode)
+from llmteam.configuration import (
+    SessionState,
+    AgentSuggestion,
+    TestRunResult,
+    TaskAnalysis,
+    ConfiguratorPrompts,
+    ConfigurationSession,
+)
+
 # v2.0.0: Three-Level Ports (RFC #7)
 from llmteam.ports import (
     PortLevel,
@@ -331,15 +411,24 @@ from llmteam.observability import (
     LogFormat,
 )
 
-# v2.0.0: Canvas Validation
-from llmteam.canvas.validation import (
-    ValidationSeverity,
-    ValidationMessage,
-    ValidationResult,
-    SegmentValidator,
-    validate_segment,
-    validate_segment_dict,
-)
+# v2.0.0: Workflow Validation (formerly Canvas Validation)
+# v5.0.0: Made optional with engine module
+if _ENGINE_AVAILABLE:
+    from llmteam.engine.validation import (
+        ValidationSeverity,
+        ValidationMessage,
+        ValidationResult,
+        SegmentValidator,
+        validate_segment,
+        validate_segment_dict,
+    )
+else:
+    ValidationSeverity = None  # type: ignore
+    ValidationMessage = None  # type: ignore
+    ValidationResult = None  # type: ignore
+    SegmentValidator = None  # type: ignore
+    validate_segment = None  # type: ignore
+    validate_segment_dict = None  # type: ignore
 
 # v2.0.3: Providers (lazy import to avoid optional dependency issues)
 # Use: from llmteam.providers import OpenAIProvider
@@ -468,28 +557,40 @@ __all__ = [
     "MemoryEventStore",
     "EventStream",
 
-    # Canvas Integration (v2.0.0)
+    # Engine Integration (v5.0.0, formerly Canvas v2.0.0)
     "PortDefinition",
     "StepPosition",
     "StepUIMetadata",
     "StepDefinition",
     "EdgeDefinition",
+    # New names (v5.0.0)
+    "WorkflowParams",
+    "WorkflowDefinition",
+    "ExecutionStatus",
+    "ExecutionResult",
+    "ExecutionEngine",
+    "ExecutionSnapshot",
+    "ExecutionSnapshotStore",
+    "EngineError",
+    "WorkflowValidationError",
+    # Backward compatibility (deprecated)
     "SegmentParams",
     "SegmentDefinition",
+    "SegmentStatus",
+    "SegmentResult",
+    "SegmentRunner",
+    "SegmentSnapshot",
+    "SegmentSnapshotStore",
+    "CanvasError",
+    "SegmentValidationError",
+    # Catalog
     "StepCategory",
     "PortSpec",
     "StepTypeMetadata",
     "StepCatalog",
-    "SegmentStatus",
-    "SegmentResult",
     "RunConfig",
-    "SegmentRunner",
-    "SegmentSnapshot",
-    "SegmentSnapshotStore",
     "HumanTaskHandler",
     "create_human_task_handler",
-    "CanvasError",
-    "SegmentValidationError",
     "StepTypeNotFoundError",
     "InvalidStepConfigError",
     "InvalidConditionError",
@@ -558,6 +659,21 @@ __all__ = [
     "FunctionHandler",
     "ChainHandler",
     "LevelFilterHandler",
+
+    # RFC-004: GroupOrchestrator
+    "GroupOrchestrator",
+    "GroupRole",
+    "TeamReport",
+    "GroupReport",
+    "GroupResult",
+
+    # RFC-005: Configuration (CONFIGURATOR mode)
+    "SessionState",
+    "AgentSuggestion",
+    "TestRunResult",
+    "TaskAnalysis",
+    "ConfiguratorPrompts",
+    "ConfigurationSession",
 
     # Contract (v3.0.0)
     "TeamContract",

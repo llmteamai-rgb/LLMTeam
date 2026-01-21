@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 class OrchestratorMode(Flag):
     """Operating modes for orchestrator."""
 
+    # === Design-time ===
+    CONFIGURATOR = auto()  # Help configure team via LLM (RFC-005)
+
+    # === Run-time ===
     SUPERVISOR = auto()  # Observe, receive reports
     REPORTER = auto()  # Generate execution reports
     RECOVERY = auto()  # Decide on error recovery
@@ -28,6 +32,7 @@ class OrchestratorMode(Flag):
     PASSIVE = SUPERVISOR | REPORTER  # Default
     ACTIVE = SUPERVISOR | REPORTER | ROUTER  # Full routing control
     FULL = SUPERVISOR | REPORTER | ROUTER | RECOVERY  # Everything
+    ASSISTED = CONFIGURATOR | PASSIVE  # Design-time + passive runtime (RFC-005)
 
 
 class OrchestratorScope(Enum):

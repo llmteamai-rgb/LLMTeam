@@ -12,7 +12,7 @@ import asyncio
 import json
 from unittest.mock import MagicMock, AsyncMock
 
-from llmteam.canvas import (
+from llmteam.engine import (
     SegmentDefinition,
     StepDefinition,
     EdgeDefinition,
