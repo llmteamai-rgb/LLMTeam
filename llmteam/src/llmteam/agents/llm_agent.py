@@ -285,8 +285,20 @@ class LLMAgent(BaseAgent):
     def _get_provider(self):
         """Get LLM provider from runtime context."""
         if hasattr(self._team, "_runtime") and self._team._runtime:
+            runtime = self._team._runtime
             try:
-                return self._team._runtime.get_llm("default")
+                # RuntimeContext uses resolve_llm, StepContext uses get_llm
+                if hasattr(runtime, "resolve_llm"):
+                    return runtime.resolve_llm(self.model)
+                elif hasattr(runtime, "get_llm"):
+                    return runtime.get_llm(self.model)
             except Exception:
-                pass
+                # Try "default" as fallback
+                try:
+                    if hasattr(runtime, "resolve_llm"):
+                        return runtime.resolve_llm("default")
+                    elif hasattr(runtime, "get_llm"):
+                        return runtime.get_llm("default")
+                except Exception:
+                    pass
         return None
