@@ -155,3 +155,9 @@ Thumbs.db
 *.7z
 изменения/
 llmteam-v*.md
+
+# Scratch / dev files
+nul
+test_config_simple.py
+test_key.py
+verify_configurator.py
