@@ -6,7 +6,7 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Current Version: v4.0.0 — Typed Agent Architecture
+## Current Version: v5.3.0
 
 ### Key Features
 
@@ -15,6 +15,11 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 - **SegmentRunner Integration** — LLMTeam uses Canvas runtime internally
 - **LLMGroup** — Multi-team coordination with automatic routing
 - **Presets** — Ready-to-use orchestrator, summarizer, reviewer configs
+- **Retry & Circuit Breaker** — Per-agent retry policies with configurable backoff
+- **Cost Tracking** — Built-in token usage tracking and budget management
+- **Streaming** — Async generator-based event streaming for real-time progress
+- **Tool/Function Calling** — `@tool` decorator, ToolExecutor, OpenAI-compatible schemas
+- **Lifecycle Management** — Opt-in team state machine (configure → ready → run)
 
 ## Installation
 
@@ -120,6 +125,113 @@ result = await team.resume(snapshot)
 await team.cancel()
 ```
 
+## Retry & Circuit Breaker (v5.3.0)
+
+```python
+from llmteam import LLMTeam
+
+team = LLMTeam(team_id="resilient", orchestration=True)
+
+# Per-agent retry with exponential backoff
+team.add_agent({
+    "type": "llm",
+    "role": "analyst",
+    "prompt": "Analyze: {query}",
+    "retry_policy": {
+        "max_retries": 3,
+        "backoff": "exponential",
+        "base_delay": 1.0,
+        "max_delay": 30.0,
+    },
+    "circuit_breaker": {
+        "failure_threshold": 5,
+        "recovery_timeout_seconds": 60.0,
+    },
+})
+```
+
+## Cost Tracking & Budgets (v5.3.0)
+
+```python
+from llmteam import LLMTeam
+
+# Team with budget enforcement
+team = LLMTeam(team_id="production", orchestration=True, max_cost_per_run=5.0)
+
+result = await team.run({"query": "..."})
+print(result.summary["cost"])  # RunCost with total, per-agent breakdown
+
+# Custom pricing
+from llmteam import PricingRegistry, ModelPricing
+registry = PricingRegistry()
+registry.register("my-model", ModelPricing(input_per_1k=0.005, output_per_1k=0.01))
+```
+
+## Streaming (v5.3.0)
+
+```python
+from llmteam import LLMTeam, StreamEventType
+
+team = LLMTeam(team_id="stream", orchestration=True)
+team.add_agent({"type": "llm", "role": "writer", "prompt": "..."})
+
+async for event in team.stream({"query": "Hello"}):
+    if event.type == StreamEventType.AGENT_COMPLETED:
+        print(f"Agent {event.agent_id}: {event.data['output']}")
+    elif event.type == StreamEventType.COST_UPDATE:
+        print(f"Cost: ${event.data['current_cost']:.4f}")
+    elif event.type == StreamEventType.RUN_COMPLETED:
+        print(f"Done: {event.data['output']}")
+```
+
+## Tool/Function Calling (v5.3.0)
+
+```python
+from llmteam import tool, LLMTeam, ToolExecutor
+
+@tool(description="Get weather for a city")
+def get_weather(city: str, units: str = "celsius") -> str:
+    return f"Weather in {city}: 22°{units[0].upper()}"
+
+# Per-agent tools
+team = LLMTeam(team_id="tools", orchestration=True)
+team.add_agent({
+    "type": "llm",
+    "role": "assistant",
+    "prompt": "Help the user",
+    "tools": [get_weather.tool_definition],
+})
+
+# Get OpenAI-compatible schemas
+agent = team.get_agent("assistant")
+schemas = agent.tool_executor.get_schemas()
+```
+
+## Lifecycle Management (v5.3.0)
+
+```python
+from llmteam import LLMTeam, ConfigurationProposal
+
+# Opt-in lifecycle enforcement
+team = LLMTeam(team_id="prod", orchestration=True, enforce_lifecycle=True)
+team.add_agent({"type": "llm", "role": "agent1", "prompt": "..."})
+
+# Configure → Ready → Run
+team.mark_configuring()
+team.lifecycle.add_proposal(ConfigurationProposal(
+    proposal_id="p-1", changes={"model": "gpt-4o"}, reason="Better accuracy"
+))
+team.lifecycle.approve_all()
+team.mark_ready()
+
+result = await team.run({"query": "test"})
+assert team.state == "completed"
+
+# Re-run
+team.mark_ready()
+result2 = await team.run({"query": "test2"})
+```
+
 ## Agent Types
 
 | Type | Purpose | Key Config |
@@ -221,9 +333,9 @@ team = LLMTeam(team_id="isolated", context_mode=ContextMode.NOT_SHARED)
 | Audit trail | ❌ | ❌ | ✅ |
 | SSO/SAML | ❌ | ❌ | ✅ |
 
-## Migration from v3.x
+## Migration from v3.x / v4.x
 
-v4.0.0 is a **breaking change**. Key differences:
+v5.x builds on v4.0.0 with non-breaking additions. Key v3.x → v4.x+ differences:
 
 | v3.x | v4.x |
 |------|------|
@@ -282,6 +394,8 @@ class LLMTeam:
         context_mode: ContextMode = ContextMode.SHARED,
         orchestration: bool = False,
         timeout: int = None,
+        max_cost_per_run: float = None,       # v5.3.0: Budget limit
+        enforce_lifecycle: bool = False,       # v5.3.0: Opt-in lifecycle
     ): ...
 
     def add_agent(self, config: Dict) -> BaseAgent: ...
@@ -292,9 +406,22 @@ class LLMTeam:
     def list_agents(self) -> List[BaseAgent]: ...
 
     async def run(self, input_data: Dict, run_id: str = None) -> RunResult: ...
+    async def stream(self, input_data: Dict, run_id: str = None) -> AsyncIterator[StreamEvent]: ...  # v5.3.0
     async def pause(self) -> TeamSnapshot: ...
     async def resume(self, snapshot: TeamSnapshot) -> RunResult: ...
     async def cancel(self) -> bool: ...
+
+    # v5.3.0: Lifecycle
+    def mark_configuring(self) -> None: ...
+    def mark_ready(self) -> None: ...
+    @property
+    def state(self) -> Optional[str]: ...
+    @property
+    def lifecycle(self) -> Optional[TeamLifecycle]: ...
+    @property
+    def cost_tracker(self) -> CostTracker: ...
+    @property
+    def budget_manager(self) -> Optional[BudgetManager]: ...
 
     def create_group(self, group_id: str, teams: List[LLMTeam]) -> LLMGroup: ...
     def to_config(self) -> Dict: ...
