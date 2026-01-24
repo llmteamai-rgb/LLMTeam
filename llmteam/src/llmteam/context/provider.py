@@ -24,9 +24,14 @@ class RetrievalQuery:
     include_metadata: bool = True
 
 
-class ContextMode(str, Enum):
+class RetrievalMode(str, Enum):
+    """Mode for context retrieval (native vs proxy)."""
     NATIVE = "native"
     PROXY = "proxy"
+
+
+# Backward compatibility alias
+ContextMode = RetrievalMode
 
 
 @dataclass
@@ -161,12 +166,12 @@ class ProxyContextProvider(ContextProvider):
 
 
 def create_provider(
-    mode: ContextMode,
+    mode: RetrievalMode,
     config: Optional[Dict[str, Any]] = None
 ) -> ContextProvider:
     """Factory to create context provider."""
     config = config or {}
-    if mode == ContextMode.PROXY:
+    if mode == RetrievalMode.PROXY:
         return ProxyContextProvider(
             endpoint=config.get("proxy_endpoint", ""),
             api_key=config.get("proxy_api_key"),

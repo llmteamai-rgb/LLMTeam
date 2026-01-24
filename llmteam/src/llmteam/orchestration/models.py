@@ -51,8 +51,14 @@ class TeamRole(Enum):
     """
 
 
-class EscalationAction(Enum):
-    """Actions for escalation handling."""
+class GroupEscalationAction(Enum):
+    """
+    Actions for group-level escalation handling.
+
+    Used by GroupOrchestrator to respond to team escalations.
+    Different from EscalationAction in llmteam.escalation which
+    is for agent/team-level handling.
+    """
 
     RETRY = "retry"
     """Retry the failed operation."""
@@ -71,6 +77,10 @@ class EscalationAction(Enum):
 
     HUMAN = "human"
     """Requires human intervention."""
+
+
+# Backward compatibility alias
+EscalationAction = GroupEscalationAction
 
 
 @dataclass
@@ -172,7 +182,8 @@ class EscalationResponse:
 
 __all__ = [
     "TeamRole",
-    "EscalationAction",
+    "GroupEscalationAction",
+    "EscalationAction",  # Backward compatibility alias
     "GroupContext",
     "EscalationRequest",
     "EscalationResponse",

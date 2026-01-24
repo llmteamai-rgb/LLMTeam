@@ -387,7 +387,7 @@ from llmteam.orchestration import (
     GroupContext,
     EscalationRequest,
     EscalationResponse,
-    EscalationAction,
+    GroupEscalationAction,  # Group-level escalation actions
 )
 
 # RFC-005: Configuration (CONFIGURATOR mode)
@@ -699,7 +699,7 @@ __all__ = [
     "GroupContext",
     "EscalationRequest",
     "EscalationResponse",
-    # Note: EscalationAction already exported from escalation module
+    "GroupEscalationAction",  # Group-level escalation (different from EscalationAction)
 
     # RFC-005: Configuration (CONFIGURATOR mode)
     "SessionState",

@@ -34,7 +34,8 @@ from llmteam.orchestration.models import (
     GroupContext,
     EscalationRequest,
     EscalationResponse,
-    EscalationAction,
+    GroupEscalationAction,
+    EscalationAction,  # Alias for GroupEscalationAction (backward compat)
 )
 
 
@@ -84,10 +85,11 @@ __all__ = [
     # RFC-009: Team roles and context
     "TeamRole",
     "GroupContext",
-    # RFC-009: Escalation
+    # RFC-009: Group escalation
     "EscalationRequest",
     "EscalationResponse",
-    "EscalationAction",
+    "GroupEscalationAction",
+    "EscalationAction",  # Alias for GroupEscalationAction
     # Reports
     "TeamReport",
     "GroupReport",

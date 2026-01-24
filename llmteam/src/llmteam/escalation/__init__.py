@@ -1,28 +1,54 @@
 """
-Escalation Handlers.
+Escalation module for LLMTeam.
+
+Provides escalation levels, actions, and handlers for managing
+error recovery and human-in-the-loop workflows.
+
+Usage:
+    from llmteam.escalation import (
+        EscalationLevel,
+        EscalationAction,
+        Escalation,
+        EscalationDecision,
+        EscalationRecord,
+        EscalationHandler,
+        DefaultHandler,
+        ThresholdHandler,
+        ChainHandler,
+    )
 """
-from dataclasses import dataclass
-from typing import Optional, Any
-from .models import EscalationLevel, EscalationDecision
 
-@dataclass
-class Escalation:
-    level: EscalationLevel
-    reason: str
+# Models
+from llmteam.escalation.models import (
+    EscalationLevel,
+    EscalationAction,
+    Escalation,
+    EscalationDecision,
+    EscalationRecord,
+)
 
-@dataclass
-class EscalationRecord:
-    id: str
+# Handlers
+from llmteam.escalation.handlers import (
+    EscalationHandler,
+    DefaultHandler,
+    ThresholdHandler,
+    FunctionHandler,
+    ChainHandler,
+    LevelFilterHandler,
+)
 
-class EscalationAction:
-    REDIRECT = "redirect"
-
-class EscalationHandler:
-    def handle(self, escalation: Escalation) -> EscalationDecision:
-        return EscalationDecision(action="none")
-
-class DefaultHandler(EscalationHandler): pass
-class ThresholdHandler(EscalationHandler): pass
-class FunctionHandler(EscalationHandler): pass
-class ChainHandler(EscalationHandler): pass
-class LevelFilterHandler(EscalationHandler): pass
+__all__ = [
+    # Models
+    "EscalationLevel",
+    "EscalationAction",
+    "Escalation",
+    "EscalationDecision",
+    "EscalationRecord",
+    # Handlers
+    "EscalationHandler",
+    "DefaultHandler",
+    "ThresholdHandler",
+    "FunctionHandler",
+    "ChainHandler",
+    "LevelFilterHandler",
+]

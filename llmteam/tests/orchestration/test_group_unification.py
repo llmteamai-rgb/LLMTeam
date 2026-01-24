@@ -11,7 +11,8 @@ from llmteam.orchestration import (
     GroupContext,
     EscalationRequest,
     EscalationResponse,
-    EscalationAction,
+    GroupEscalationAction,
+    EscalationAction,  # Alias for GroupEscalationAction
     TeamReport,
     GroupReport,
     GroupResult,
@@ -29,17 +30,21 @@ class TestTeamRole:
         assert TeamRole.FALLBACK.value == "fallback"
 
 
-class TestEscalationAction:
-    """Tests for EscalationAction enum."""
+class TestGroupEscalationAction:
+    """Tests for GroupEscalationAction enum."""
 
-    def test_escalation_actions(self):
-        """EscalationAction should have all expected values."""
-        assert EscalationAction.RETRY.value == "retry"
-        assert EscalationAction.SKIP.value == "skip"
-        assert EscalationAction.REROUTE.value == "reroute"
-        assert EscalationAction.ABORT.value == "abort"
-        assert EscalationAction.CONTINUE.value == "continue"
-        assert EscalationAction.HUMAN.value == "human"
+    def test_group_escalation_actions(self):
+        """GroupEscalationAction should have all expected values."""
+        assert GroupEscalationAction.RETRY.value == "retry"
+        assert GroupEscalationAction.SKIP.value == "skip"
+        assert GroupEscalationAction.REROUTE.value == "reroute"
+        assert GroupEscalationAction.ABORT.value == "abort"
+        assert GroupEscalationAction.CONTINUE.value == "continue"
+        assert GroupEscalationAction.HUMAN.value == "human"
+
+    def test_escalation_action_alias(self):
+        """EscalationAction should be alias for GroupEscalationAction."""
+        assert EscalationAction is GroupEscalationAction
 
 
 class TestGroupRole:
