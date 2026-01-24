@@ -4,6 +4,14 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 5.4.0 (RFC-015/016/017/018/019/020: Agentic Execution)
+    - New: RFC-015 Provider complete_with_tools(), LLMResponse, ToolCall, ToolMessage
+    - New: RFC-016 LLMAgent tool execution loop (max_tool_rounds)
+    - New: RFC-017 Agent-level TOOL_CALL/TOOL_RESULT/AGENT_THINKING stream events
+    - New: RFC-018 Built-in tools library (web_search, http_fetch, json_extract, etc.)
+    - New: RFC-019 PeriodBudgetManager for hour/day/month budgets
+    - New: RFC-020 Retry-After support from LLM providers
+
 Version: 5.3.0 (RFC-010/011/012/013/014: Enterprise Features)
     - New: RFC-012 Per-agent RetryPolicy & CircuitBreakerPolicy
     - New: RFC-010 CostTracker, BudgetManager, PricingRegistry
@@ -62,7 +70,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.3.0"
+__version__ = "5.4.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -428,6 +436,9 @@ from llmteam.cost import (
     BudgetStatus,
     BudgetManager,
     BudgetExceededError,
+    # RFC-019: Period budgets
+    PeriodRecord,
+    PeriodBudgetManager,
 )
 
 # RFC-014: Enhanced Configurator Mode (opt-in lifecycle)
@@ -447,6 +458,26 @@ from llmteam.tools import (
     ToolResult,
     tool,
     ToolExecutor,
+    # RFC-018: Built-in tools
+    BUILTIN_TOOLS,
+)
+
+# RFC-015: Provider Function Calling
+from llmteam.providers.base import (
+    ToolCall as ProviderToolCall,
+    LLMResponse,
+    ToolMessage,
+)
+
+# RFC-021: Dynamic Team Builder
+from llmteam.builder import (
+    DynamicTeamBuilder,
+    TeamBlueprint,
+    AgentBlueprint,
+    TOOL_MAP,
+    BuilderError,
+    BuilderParseError,
+    BuilderValidationError,
 )
 
 # RFC-008: Quality Slider
@@ -778,6 +809,9 @@ __all__ = [
     "BudgetStatus",
     "BudgetManager",
     "BudgetExceededError",
+    # RFC-019: Period budgets
+    "PeriodRecord",
+    "PeriodBudgetManager",
 
     # RFC-014: Enhanced Configurator Mode
     "TeamState",
@@ -793,6 +827,22 @@ __all__ = [
     "ToolResult",
     "tool",
     "ToolExecutor",
+    # RFC-018: Built-in tools
+    "BUILTIN_TOOLS",
+
+    # RFC-021: Dynamic Team Builder
+    "DynamicTeamBuilder",
+    "TeamBlueprint",
+    "AgentBlueprint",
+    "TOOL_MAP",
+    "BuilderError",
+    "BuilderParseError",
+    "BuilderValidationError",
+
+    # RFC-015: Provider Function Calling
+    "ProviderToolCall",
+    "LLMResponse",
+    "ToolMessage",
 
     # RFC-008: Quality Slider
     "QualityManager",

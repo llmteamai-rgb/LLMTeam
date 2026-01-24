@@ -49,6 +49,7 @@ TEST_MODULES = [
     "providers",    # v2.0.3
     "testing",      # v2.0.3
     "quality",      # RFC-008
+    "builder",      # RFC-021
 ]
 
 
