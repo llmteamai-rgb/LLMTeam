@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 5.3.0 (RFC-010/011/012/013/014: Enterprise Features)
+- **Current version:** 5.4.0 (RFC-015/016/017/018/019/020/021: Agentic Execution)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -126,6 +126,7 @@ AgentReport                    — Automatic reporting to orchestrator
 | `escalation/` | EscalationLevel, handlers (Default, Threshold, Chain) |
 | `mining/` | ProcessMiningEngine, ProcessEvent, ProcessMetrics |
 | `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator (RFC-008) |
+| `builder/` | **DynamicTeamBuilder**, TeamBlueprint, AgentBlueprint, TOOL_MAP (RFC-021) |
 | `roles/` | Legacy module (deprecated, re-exports from new locations) |
 
 **Canvas & Runtime:**
@@ -365,6 +366,68 @@ runtime = factory.create_runtime(tenant_id="acme", instance_id="run-123")
 step_ctx = runtime.child_context("step_1")
 team = step_ctx.get_team("support")  # v3.0.0: Access teams
 ```
+
+**DynamicTeamBuilder Pattern (RFC-021):** Automatic team creation from task descriptions:
+```python
+from llmteam.builder import DynamicTeamBuilder, TeamBlueprint, AgentBlueprint
+
+# Create builder (uses OpenAIProvider internally)
+builder = DynamicTeamBuilder(model="gpt-4o-mini", verbose=True)
+
+# LLM analyzes task → returns TeamBlueprint
+blueprint = await builder.analyze_task("Research AI trends and summarize findings")
+
+# Optionally ask clarifying questions
+questions = await builder.ask_clarifying_questions("Build a chatbot")
+# Returns None if clear, or ["What platform?", ...] if not
+
+# Optionally refine blueprint based on feedback
+blueprint = await builder.refine_blueprint(blueprint, "Add a code analyst agent")
+
+# Build LLMTeam from blueprint (orchestration=True, ROUTER mode)
+team = builder.build_team(blueprint)
+
+# Execute with streaming events
+await builder.execute(team, {"query": "Latest LLM breakthroughs"})
+
+# Or run the full interactive CLI flow
+await builder.run_interactive()
+```
+
+**TeamBlueprint/AgentBlueprint:** Dataclasses describing team structure:
+```python
+blueprint = TeamBlueprint(
+    team_id="research-team",
+    description="Research and summarize",
+    agents=[
+        AgentBlueprint(
+            role="researcher",
+            purpose="Search for information",
+            prompt="Research: {query}",
+            tools=["web_search", "http_fetch"],  # Only TOOL_MAP keys
+            model="gpt-4o-mini",
+            temperature=0.3,
+            max_tool_rounds=5,
+        ),
+    ],
+    routing_strategy="Route research to researcher",
+    input_variables=["query"],
+)
+```
+
+**TOOL_MAP:** Available tools for dynamic agents (only these 5):
+- `web_search` — Search the web
+- `http_fetch` — Fetch URL content
+- `json_extract` — Extract from JSON via dot-notation
+- `text_summarize` — Extract key sentences
+- `code_eval` — Safe Python expression evaluation
+
+**Blueprint Validation Rules:**
+- 1-5 agents with unique roles (no `_` prefix)
+- Tools must be keys from `TOOL_MAP`
+- Temperature: 0-2, max_tool_rounds: 1-10
+- Unknown tools are filtered with a warning
+- Invalid JSON from LLM raises `BuilderParseError`
 
 ### Security Principles
 
