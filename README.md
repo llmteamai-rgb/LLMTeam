@@ -6,16 +6,17 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with secur
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Current Version: v2.3.0 — Team Contracts & Canvas Integration
+## Current Version: v5.4.0 — Agentic Execution
 
-### New Features in v2.3.0
+### New in v5.4.0
 
-- **TeamContract** — Formal interface definitions for team inputs/outputs with type validation
-- **TeamHandler** — Execute agent teams as Canvas workflow steps
-- **Escalation System** — Structured escalation handling in GroupOrchestrator (INFO → WARNING → CRITICAL → EMERGENCY)
-- **Coordinator Role** — GroupOrchestrator transitioned from Router to Coordinator/Supervisor
-
-> **Migration Note:** `GroupOrchestrator.orchestrate()` is deprecated. Use Canvas with TeamHandler for routing between teams.
+- **RFC-021: DynamicTeamBuilder** — LLM analyzes your task, designs a team of agents with tools, and executes it
+- **RFC-015: Provider Function Calling** — `complete_with_tools()`, `LLMResponse`, `ToolCall`, `ToolMessage`
+- **RFC-016: Agent Tool Loop** — LLMAgent executes multi-round tool calling (configurable `max_tool_rounds`)
+- **RFC-017: Tool Stream Events** — `TOOL_CALL`, `TOOL_RESULT`, `AGENT_THINKING` events during execution
+- **RFC-018: Built-in Tools** — `web_search`, `http_fetch`, `json_extract`, `text_summarize`, `code_eval`
+- **RFC-019: Period Budgets** — `PeriodBudgetManager` for hour/day/month cost limits
+- **RFC-020: Retry-After** — Automatic retry-after handling from LLM providers
 
 ---
 
@@ -23,36 +24,11 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines with secur
 
 LLMTeam is an **AI agent orchestration library** that enables:
 
-- Creating teams of AI agents with defined roles
-- Orchestrating agent interactions within pipelines
-- Integrating agent teams into visual workflow builders (Canvas)
-- Enterprise-grade security, audit, and multi-tenancy
-
-## What LLMTeam is NOT
-
-| NOT | Explanation |
-|-----|-------------|
-| ❌ **Workflow Engine** | LLMTeam orchestrates agents, not business processes. Use Canvas for workflow routing. |
-| ❌ **BPM System** | No BPMN, no process definitions, no human task management (that's Canvas responsibility) |
-| ❌ **Rule Engine** | Conditions are soft-routing hints, not business rules |
-| ❌ **Execution History Owner** | Platforms (like KorpOS) own execution history; LLMTeam provides events |
-
-### Architecture: Who Does What
-
-```
-Canvas (SegmentRunner)         — Routing logic (edges, conditions, workflow)
-       │
-       ▼
-GroupOrchestrator              — Coordination (escalations, metrics, supervision)
-       │
-       ▼
-LLMTeam (PipelineOrchestrator) — Agent orchestration (internal pipeline)
-       │
-       ▼
-Agents                         — LLM calls, tools, actions
-```
-
-**Key Principle:** Routing between teams is defined in Canvas, not in GroupOrchestrator.
+- Creating teams of typed AI agents (LLM, RAG, KAG) with defined roles
+- Dynamic team building from natural language task descriptions
+- Agentic tool-use loops with streaming events
+- Orchestrating agent interactions with ROUTER/PASSIVE/FULL modes
+- Enterprise-grade security, audit, cost tracking, and multi-tenancy
 
 ---
 
@@ -61,11 +37,8 @@ Agents                         — LLM calls, tools, actions
 ```bash
 pip install llmteam-ai
 
-# With PostgreSQL support
-pip install llmteam-ai[postgres]
-
-# With API server (FastAPI)
-pip install llmteam-ai[api]
+# With LLM providers (OpenAI, Anthropic)
+pip install llmteam-ai[providers]
 
 # With all optional dependencies
 pip install llmteam-ai[all]
@@ -75,180 +48,121 @@ pip install llmteam-ai[all]
 
 ## Quick Start
 
-### 1. Define a Team with Contract
+### 1. Create a Team with Typed Agents
 
 ```python
-from llmteam.roles import PipelineOrchestrator, TeamContract, RuleBasedStrategy
-from llmteam.ports import TypedPort, PortLevel, PortDirection
+from llmteam import LLMTeam
 
-# Define formal contract
-contract = TeamContract(
-    name="triage_team",
-    inputs=[
-        TypedPort(
-            name="ticket",
-            level=PortLevel.WORKFLOW,
-            direction=PortDirection.INPUT,
-            data_type="object",
-            required=True,
-            description="Support ticket to classify",
-        ),
+# Create team with typed agents (LLM, RAG, KAG)
+team = LLMTeam(
+    team_id="support",
+    agents=[
+        {"type": "llm", "role": "triage", "prompt": "Categorize this ticket: {query}"},
+        {"type": "llm", "role": "resolver", "prompt": "Resolve this issue: {query}"},
     ],
-    outputs=[
-        TypedPort(
-            name="category",
-            level=PortLevel.WORKFLOW,
-            direction=PortDirection.OUTPUT,
-            data_type="string",
-            required=True,
-            description="Ticket category (billing/technical/general)",
-        ),
-        TypedPort(
-            name="priority",
-            level=PortLevel.WORKFLOW,
-            direction=PortDirection.OUTPUT,
-            data_type="string",
-            required=True,
-            description="Priority level (low/medium/high/critical)",
-        ),
-    ],
-    strict=True,  # Reject unknown fields
-    description="Triage team for ticket classification",
+    flow="triage -> resolver",  # DAG flow
+    quality=70,                 # Quality slider 0-100
 )
 
-# Create team with contract
-triage_team = PipelineOrchestrator(
-    pipeline_id="triage",
-    contract=contract,
-    strategy=RuleBasedStrategy(),
-    strict_validation=True,  # Raise errors on validation failure
-)
-
-# Register agents
-triage_team.register_agent("classifier", classifier_agent)
-triage_team.register_agent("prioritizer", prioritizer_agent)
-
-# Execute
-result = await triage_team.orchestrate("run_123", {
-    "ticket": {"id": "T-001", "subject": "Cannot login", "body": "..."}
-})
-# result = {"category": "technical", "priority": "high", ...}
+result = await team.run({"query": "I can't login to my account"})
+print(result.output)
 ```
 
-### 2. Use Team in Canvas Workflow
+### 2. Agents with Tools (Agentic Execution)
 
 ```python
-from llmteam.canvas import SegmentDefinition, StepDefinition, EdgeDefinition, SegmentRunner
-from llmteam.runtime import RuntimeContextFactory
+from llmteam import LLMTeam
+from llmteam.tools.builtin import web_search, code_eval
 
-# Register team in runtime
-factory = RuntimeContextFactory()
-runtime = factory.create_runtime(tenant_id="acme", instance_id="support-flow-1")
-runtime.register_team("triage_team", triage_team)
-runtime.register_team("billing_team", billing_team)
-runtime.register_team("technical_team", technical_team)
-
-# Define workflow with team steps
-segment = SegmentDefinition(
-    segment_id="support_workflow",
-    name="Support Ticket Processing",
-    steps=[
-        StepDefinition(
-            step_id="triage",
-            step_type="team",
-            config={
-                "team_ref": "triage_team",
-                "input_mapping": {"ticket": "input.ticket"},
-            },
-        ),
-        StepDefinition(
-            step_id="billing",
-            step_type="team",
-            config={
-                "team_ref": "billing_team",
-                "input_mapping": {"issue": "steps.triage.output"},
-            },
-        ),
-        StepDefinition(
-            step_id="technical",
-            step_type="team",
-            config={
-                "team_ref": "technical_team",
-                "input_mapping": {"issue": "steps.triage.output"},
-            },
-        ),
+team = LLMTeam(
+    team_id="research",
+    agents=[
+        {
+            "type": "llm",
+            "role": "researcher",
+            "prompt": "Research this topic: {query}",
+            "tools": [web_search.tool_definition],
+            "max_tool_rounds": 5,
+        },
+        {
+            "type": "llm",
+            "role": "analyst",
+            "prompt": "Analyze these findings: {query}",
+            "tools": [code_eval.tool_definition],
+        },
     ],
-    edges=[
-        EdgeDefinition(
-            source_step="triage",
-            target_step="billing",
-            condition="steps.triage.output.category == 'billing'",
-        ),
-        EdgeDefinition(
-            source_step="triage",
-            target_step="technical",
-            condition="steps.triage.output.category == 'technical'",
-        ),
-    ],
+    orchestration=True,  # ROUTER mode: orchestrator picks the right agent
 )
 
-# Run workflow
-runner = SegmentRunner()
-result = await runner.run(
-    segment=segment,
-    input_data={"ticket": {"id": "T-001", "subject": "Billing question"}},
-    runtime=runtime,
-)
+# Stream events during execution
+async for event in team.stream({"query": "AI market size 2025"}):
+    if event.type.value == "tool_call":
+        print(f"  Tool: {event.data['tool_name']}({event.data['arguments']})")
+    elif event.type.value == "agent_completed":
+        print(f"  Agent {event.agent_id}: {event.data['output'][:100]}")
 ```
 
-### 3. Handle Escalations
+### 3. Dynamic Team Builder (RFC-021)
 
 ```python
-from llmteam.roles import (
-    GroupOrchestrator,
-    Escalation,
-    EscalationLevel,
-    EscalationAction,
-    EscalationDecision,
+from llmteam.builder import DynamicTeamBuilder
+
+# LLM designs a team from your task description
+builder = DynamicTeamBuilder(model="gpt-4o-mini")
+
+# Analyze task → get blueprint
+blueprint = await builder.analyze_task(
+    "Research AI trends, calculate statistics, and summarize findings"
+)
+# Blueprint: 3 agents (researcher, calculator, summarizer) with appropriate tools
+
+# Build and execute
+team = builder.build_team(blueprint)
+await builder.execute(team, {"query": "Latest LLM breakthroughs"})
+
+# Or run the full interactive CLI
+await builder.run_interactive()
+```
+
+### 4. ROUTER Mode (Orchestrator Picks Agents)
+
+```python
+from llmteam import LLMTeam
+
+team = LLMTeam(
+    team_id="helpdesk",
+    agents=[
+        {"type": "llm", "role": "billing", "prompt": "Handle billing: {query}"},
+        {"type": "llm", "role": "technical", "prompt": "Handle tech: {query}"},
+        {"type": "llm", "role": "general", "prompt": "Handle general: {query}"},
+    ],
+    orchestration=True,  # Orchestrator LLM routes to the right agent
 )
 
-# Create coordinator group
-group = GroupOrchestrator("support_group")
-group.register_pipeline(triage_team)
-group.register_pipeline(billing_team)
-group.register_pipeline(technical_team)
+# Orchestrator automatically routes to "billing" agent
+result = await team.run({"query": "Why was I charged twice?"})
+```
 
-# Handle escalation from a team
-escalation = Escalation(
-    escalation_id="esc-001",
-    level=EscalationLevel.WARNING,
-    source_pipeline="billing_team",
-    reason="Refund amount exceeds threshold",
-    context={"amount": 5000, "customer_tier": "standard"},
+### 5. Cost Tracking & Budgets
+
+```python
+from llmteam import LLMTeam
+
+team = LLMTeam(
+    team_id="content",
+    agents=[{"type": "llm", "role": "writer", "prompt": "Write about: {query}"}],
+    quality=50,              # Controls model selection & cost
+    max_cost_per_run=0.50,   # Hard cost limit per execution
 )
 
-# Default handling based on level
-decision = await group.handle_escalation(escalation)
-# decision.action = EscalationAction.REDIRECT (to another team)
+# Get cost estimate before running
+estimate = await team.estimate_cost(complexity="medium")
+print(f"Estimated: ${estimate.min_cost:.2f} - ${estimate.max_cost:.2f}")
 
-# Or use custom handler
-def custom_handler(esc: Escalation) -> EscalationDecision:
-    if esc.context.get("amount", 0) > 10000:
-        return EscalationDecision(
-            action=EscalationAction.HUMAN_REVIEW,
-            message="Large refund requires manager approval",
-        )
-    return EscalationDecision(
-        action=EscalationAction.ACKNOWLEDGE,
-        message="Proceeding with standard refund",
-    )
+# Period budgets (hourly/daily/monthly limits)
+from llmteam.cost import PeriodBudgetManager, BudgetPeriod
 
-decision = await group.handle_escalation(escalation, handler=custom_handler)
-
-# Collect metrics for monitoring
-metrics = group.collect_metrics()
-print(f"Health score: {metrics['health_score']}")
-print(f"Escalations (24h): {metrics['escalations']['total']}")
+budget = PeriodBudgetManager(max_cost=100.0, period=BudgetPeriod.DAILY)
 ```
 
 ---
@@ -256,95 +170,141 @@ print(f"Escalations (24h): {metrics['escalations']['total']}")
 ## CLI Usage
 
 ```bash
-# Validate segment definition
-llmteam validate segment.json
+llmteam --version              # Show version
+llmteam catalog                # List step types
+llmteam validate segment.json  # Validate workflow
+llmteam run segment.json       # Run workflow
+llmteam providers              # List LLM providers
+llmteam serve --port 8000      # Start API server
+```
 
-# Run segment
-llmteam run segment.json --input-json '{"ticket": {"id": "T-001"}}'
+### Dynamic Builder Demo
 
-# List available step types (includes 'team' in v2.3.0)
-llmteam catalog
-
-# Start API server
-llmteam serve --port 8000
+```bash
+export OPENAI_API_KEY="sk-..."
+python examples/dynamic_demo.py
 ```
 
 ---
 
 ## Features by Version
 
-### v2.3.0 — Team Contracts & Canvas Integration (Current)
+### v5.4.0 — Agentic Execution (Current)
 
 | Feature | Description |
 |---------|-------------|
-| **TeamContract** | Formal input/output contracts with validation |
-| **TeamHandler** | Canvas step type for executing teams |
-| **Escalation System** | Structured escalation with levels and actions |
-| **Coordinator Role** | GroupOrchestrator as supervisor, not router |
+| **DynamicTeamBuilder** | LLM-powered automatic team creation from task descriptions |
+| **Provider Function Calling** | `complete_with_tools()` on all providers |
+| **Agent Tool Loop** | Multi-round tool execution with `max_tool_rounds` |
+| **Built-in Tools** | 5 ready-to-use tools (web_search, http_fetch, etc.) |
+| **Tool Stream Events** | Real-time TOOL_CALL/TOOL_RESULT events |
+| **Period Budgets** | Hour/day/month cost management |
+| **Retry-After** | Automatic provider rate-limit handling |
 
-### v2.2.0 — Extended Handlers
+### v5.3.0 — Enterprise Features
 
-- SubworkflowHandler, SwitchHandler
-- Redis/Kafka event transports
-- JSONPath in transforms
+| Feature | Description |
+|---------|-------------|
+| **Per-agent Retry** | RetryPolicy & CircuitBreakerPolicy per agent |
+| **Cost Tracking** | CostTracker, BudgetManager, PricingRegistry |
+| **Streaming** | StreamEvent, StreamEventType for real-time events |
+| **Team Lifecycle** | TeamState, ConfigurationProposal, TeamLifecycle |
 
-### v2.1.0 — Extended Providers
+### v5.1.0 — Quality Slider
 
-- Vertex AI, Ollama, LiteLLM providers
-- Enterprise secrets (Vault, AWS, Azure)
-- GraphQL/gRPC clients
+- Quality slider (0-100) controls model selection and cost
+- Presets: draft, economy, balanced, production, best
+- CostEstimator for pre-run cost prediction
 
-### v2.0.0 — Canvas Integration
+### v4.1.0 — TeamOrchestrator
 
-- RuntimeContext injection
-- Worktrail events
-- SegmentRunner execution
+- TeamOrchestrator as separate supervisor entity (not an agent)
+- OrchestratorMode: PASSIVE, ACTIVE (ROUTER), FULL
+- AgentReport for automatic agent-to-orchestrator reporting
 
-### v1.7.0–v1.9.0 — Security & Workflow Foundation
+### v4.0.0 — Typed Agents
+
+- Only 3 agent types: LLM, RAG, KAG (no custom Agent classes)
+- AgentFactory with config-driven creation
+- DAG flow support (string or dict)
+
+### v2.x — Canvas & Runtime
+
+- SegmentRunner workflow execution
+- RuntimeContext resource injection
+- Worktrail events, 12 built-in step handlers
+- LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, Ollama)
+
+### v1.x — Security Foundation
 
 - Multi-tenant isolation
 - Audit trail with SHA-256 chain
-- Human-in-the-loop, pause/resume
-
----
-
-## Step Types
-
-| Type | Category | Description |
-|------|----------|-------------|
-| `llm_agent` | AI | LLM-powered agent step |
-| `team` | AI | **v2.3.0** Execute agent team |
-| `transform` | Data | Data transformation |
-| `human_task` | Human | Human approval/input |
-| `condition` | Control | Conditional branching |
-| `switch` | Control | Multi-way branching |
-| `parallel_split` | Control | Fan-out to parallel |
-| `parallel_join` | Control | Merge parallel results |
-| `loop` | Control | Iterative processing |
-| `subworkflow` | Control | Nested workflow |
-| `http_action` | Integration | External API calls |
+- Context security (sealed data, visibility levels)
+- Rate limiting, circuit breakers
 
 ---
 
 ## Architecture
 
 ```
+DynamicTeamBuilder              — Task analysis → TeamBlueprint → LLMTeam
+       │
+       ▼
+LLMTeam + TeamOrchestrator      — Agent container + supervisor (ROUTER/PASSIVE/FULL)
+       │
+       ├─ LLMAgent (tools)      — Tool execution loop (max_tool_rounds)
+       ├─ RAGAgent              — Retrieval-augmented generation
+       └─ KAGAgent              — Knowledge graph queries
+       │
+       ▼
+StreamEvent                     — Real-time events (TOOL_CALL, AGENT_COMPLETED, etc.)
+       │
+       ▼
+Canvas (ExecutionEngine)        — Workflow routing (edges, conditions, DAG)
+```
+
+### Module Structure
+
+```
 llmteam/
-├── roles/            # Orchestration (v2.3.0: TeamContract, Escalation)
-│   ├── contract.py   # TeamContract, ValidationResult
-│   ├── pipeline_orch.py  # PipelineOrchestrator with contract support
-│   └── group_orch.py # GroupOrchestrator with escalation handling
-├── canvas/           # Canvas segment execution
-│   ├── handlers/     # Step handlers (v2.3.0: TeamHandler)
-│   ├── catalog.py    # StepCatalog with 11 built-in types
-│   └── runner.py     # SegmentRunner
-├── runtime/          # Runtime context injection
-├── events/           # Worktrail events + transports
-├── ports/            # TypedPort, PortLevel, PortDirection
-├── providers/        # LLM providers (OpenAI, Anthropic, etc.)
+├── builder/          # RFC-021: DynamicTeamBuilder, TeamBlueprint
+├── agents/           # Typed agents (LLM/RAG/KAG), orchestrator, factory
+├── team/             # LLMTeam, LLMGroup, RunResult, lifecycle
+├── tools/            # ToolDefinition, ToolExecutor, built-in tools
+├── providers/        # LLM providers (OpenAI, Anthropic, Azure, etc.)
+├── cost/             # CostTracker, BudgetManager, PeriodBudgetManager
+├── quality/          # QualityManager, CostEstimator
+├── events/           # StreamEvent, Worktrail events, transports
+├── engine/           # ExecutionEngine (workflow runner)
+├── runtime/          # RuntimeContext, StepContext
+├── escalation/       # EscalationLevel, handlers
 ├── tenancy/          # Multi-tenant isolation
 ├── audit/            # Compliance audit trail
-└── observability/    # Structured logging, tracing
+└── auth/             # OIDC, JWT, API key + RBAC
+```
+
+---
+
+## Built-in Tools
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | Search the web for information |
+| `http_fetch` | Fetch content from a URL |
+| `json_extract` | Extract values from JSON via dot-notation path |
+| `text_summarize` | Summarize text by extracting key sentences |
+| `code_eval` | Safely evaluate Python expressions |
+
+```python
+from llmteam.tools.builtin import web_search, http_fetch, code_eval
+
+team.add_agent({
+    "type": "llm",
+    "role": "researcher",
+    "prompt": "Research: {query}",
+    "tools": [web_search.tool_definition, http_fetch.tool_definition],
+    "max_tool_rounds": 5,
+})
 ```
 
 ---
@@ -355,22 +315,22 @@ llmteam/
 
 1. **Horizontal Isolation** — Agents never see each other's contexts
 2. **Vertical Visibility** — Orchestrators see only their child agents
-3. **Tenant Isolation** — Complete data separation between tenants
-4. **Contract Validation** — Type-safe boundaries between components
-
-### Canvas Integration
-
-1. **JSON Contract** — Segments defined as portable JSON
-2. **Step Catalog** — Extensible registry of step types
-3. **Team as Step** — Agent teams are first-class workflow steps
-4. **Event-Driven** — UI updates via Worktrail events
+3. **Sealed Data** — Only the owner agent can access sealed fields
+4. **Tenant Isolation** — Complete data separation between tenants
 
 ### Orchestration
 
-1. **Config-Driven** — Behavior defined by configuration, not code
-2. **Execution-First** — Events are source of truth
-3. **Escalation-Aware** — Structured handling of exceptional cases
-4. **Stateless** — No global state, instance-scoped
+1. **Typed Agents** — Only LLM, RAG, KAG (no custom Agent classes)
+2. **Separate Orchestrator** — TeamOrchestrator is NOT an agent
+3. **Config-Driven** — Agents defined by config dicts, not subclasses
+4. **Tool Loop** — Agents autonomously call tools in multi-round loops
+
+### Cost & Quality
+
+1. **Quality Slider** — Single 0-100 parameter controls quality/cost tradeoff
+2. **Budget Enforcement** — Per-run and per-period cost limits
+3. **Cost Estimation** — Pre-run cost prediction
+4. **Streaming** — Real-time events for progress monitoring
 
 ---
 
@@ -378,7 +338,6 @@ llmteam/
 
 - [PyPI Package](https://pypi.org/project/llmteam-ai/)
 - [GitHub Repository](https://github.com/llmteamai-rgb/LLMTeam)
-- [Changelog](https://github.com/llmteamai-rgb/LLMTeam/blob/main/CHANGELOG.md)
 
 ## License
 
