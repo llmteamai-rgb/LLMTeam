@@ -33,6 +33,13 @@ class StreamEventType(str, Enum):
     # Cost (RFC-010 integration)
     COST_UPDATE = "cost_update"
 
+    # RFC-017: Tool calling events
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+
+    # RFC-017: Agent thinking/reasoning
+    AGENT_THINKING = "agent_thinking"
+
 
 @dataclass
 class StreamEvent:

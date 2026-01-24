@@ -576,6 +576,18 @@ class LLMTeam:
                     agent_id=agent.agent_id,
                 )
 
+                # RFC-017: Set up agent event buffer for tool call visibility
+                agent_events: list = []
+
+                async def _agent_event_cb(
+                    event_type: str, data: dict, agent_id: str
+                ) -> None:
+                    agent_events.append((event_type, data, agent_id))
+
+                # Set callback on LLMAgent if applicable
+                if hasattr(agent, "_event_callback"):
+                    agent._event_callback = _agent_event_cb
+
                 # Build context
                 context = {"outputs": outputs}
                 if outputs:
@@ -589,6 +601,27 @@ class LLMTeam:
                     context=context,
                     run_id=run_id,
                 )
+
+                # Clear callback
+                if hasattr(agent, "_event_callback"):
+                    agent._event_callback = None
+
+                # RFC-017: Yield buffered tool events
+                for evt_type, evt_data, evt_agent_id in agent_events:
+                    if evt_type == "tool_call":
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL,
+                            data=evt_data,
+                            run_id=run_id,
+                            agent_id=evt_agent_id,
+                        )
+                    elif evt_type == "tool_result":
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_RESULT,
+                            data=evt_data,
+                            run_id=run_id,
+                            agent_id=evt_agent_id,
+                        )
 
                 # RFC-010: Record token usage
                 if result.tokens_used > 0:

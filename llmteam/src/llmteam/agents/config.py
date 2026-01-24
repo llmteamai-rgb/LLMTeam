@@ -65,6 +65,9 @@ class LLMAgentConfig(AgentConfig):
     temperature: float = 0.7
     max_tokens: int = 1000
 
+    # RFC-016: Tool execution loop
+    max_tool_rounds: int = 5  # Max tool call loops before stopping
+
     # Output
     output_key: Optional[str] = None  # Key for saving result
     output_format: str = "text"  # "text" | "json" | "structured"

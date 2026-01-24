@@ -31,10 +31,15 @@ Environment Variables:
 
 from llmteam.providers.base import (
     BaseLLMProvider,
+    CompletionConfig,
     LLMProviderError,
     LLMRateLimitError,
     LLMAuthenticationError,
     LLMModelNotFoundError,
+    # RFC-015: Function Calling
+    ToolCall,
+    LLMResponse,
+    ToolMessage,
 )
 
 from llmteam.providers.openai import OpenAIProvider
@@ -48,10 +53,15 @@ from llmteam.providers.litellm import LiteLLMProvider
 __all__ = [
     # Base
     "BaseLLMProvider",
+    "CompletionConfig",
     "LLMProviderError",
     "LLMRateLimitError",
     "LLMAuthenticationError",
     "LLMModelNotFoundError",
+    # RFC-015: Function Calling
+    "ToolCall",
+    "LLMResponse",
+    "ToolMessage",
     # Providers
     "OpenAIProvider",
     "AnthropicProvider",

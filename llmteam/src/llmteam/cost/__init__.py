@@ -12,6 +12,9 @@ from llmteam.cost.budget import (
     BudgetStatus,
     BudgetManager,
     BudgetExceededError,
+    # RFC-019
+    PeriodRecord,
+    PeriodBudgetManager,
 )
 
 __all__ = [
@@ -28,4 +31,7 @@ __all__ = [
     "BudgetStatus",
     "BudgetManager",
     "BudgetExceededError",
+    # RFC-019: Period budgets
+    "PeriodRecord",
+    "PeriodBudgetManager",
 ]

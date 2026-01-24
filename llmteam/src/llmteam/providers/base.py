@@ -5,7 +5,7 @@ Provides common functionality for all LLM providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, List, Optional
 from dataclasses import dataclass, field
 
 
@@ -29,6 +29,49 @@ class LLMRateLimitError(LLMProviderError):
     ):
         super().__init__(message, provider, {"retry_after": retry_after})
         self.retry_after = retry_after
+
+
+# RFC-015: Function Calling support
+
+
+@dataclass
+class ToolCall:
+    """A tool/function call requested by the LLM."""
+
+    id: str  # Unique call ID (from provider)
+    name: str  # Function/tool name
+    arguments: dict[str, Any] = field(default_factory=dict)  # Parsed arguments
+
+
+@dataclass
+class LLMResponse:
+    """
+    Structured response from LLM provider.
+
+    RFC-015: Supports both text responses and tool/function calls.
+    """
+
+    content: Optional[str] = None  # Text response (None if tool_calls)
+    tool_calls: List[ToolCall] = field(default_factory=list)  # Requested tool calls
+    tokens_used: int = 0  # Total tokens consumed
+    input_tokens: int = 0  # Input tokens
+    output_tokens: int = 0  # Output tokens
+    model: Optional[str] = None  # Model used
+    finish_reason: str = "stop"  # "stop", "tool_calls", "length"
+
+    @property
+    def has_tool_calls(self) -> bool:
+        """Whether the response requests tool calls."""
+        return len(self.tool_calls) > 0
+
+
+@dataclass
+class ToolMessage:
+    """Result of a tool call, sent back to the LLM."""
+
+    tool_call_id: str  # Matching ToolCall.id
+    name: str  # Tool name
+    content: str  # Tool output (serialized)
 
 
 class LLMAuthenticationError(LLMProviderError):
@@ -141,6 +184,30 @@ class BaseLLMProvider(ABC):
                 prompt_parts.append(f"User: {content}")
         prompt = "\n\n".join(prompt_parts)
         return await self.complete(prompt, **kwargs)
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: Optional[list[dict[str, Any]]] = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """
+        Generate completion with function/tool calling support.
+
+        RFC-015: Send messages with tool schemas, get back either
+        text content or tool_calls.
+
+        Args:
+            messages: List of message dicts (role, content, tool_call_id, etc.)
+            tools: List of tool schemas (OpenAI function calling format)
+            **kwargs: Additional arguments (max_tokens, temperature, etc.)
+
+        Returns:
+            LLMResponse with content and/or tool_calls.
+        """
+        # Default implementation: fall back to complete_with_messages (no tools)
+        text = await self.complete_with_messages(messages, **kwargs)
+        return LLMResponse(content=text, finish_reason="stop")
 
     async def stream(
         self,

@@ -25,6 +25,8 @@ from llmteam.providers.base import (
     LLMRateLimitError,
     LLMAuthenticationError,
     LLMModelNotFoundError,
+    LLMResponse,
+    ToolCall,
 )
 
 
@@ -145,6 +147,79 @@ class OpenAIProvider(BaseLLMProvider):
             The completion text.
         """
         return await self.complete("", messages=messages, **kwargs)
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: Optional[list[dict[str, Any]]] = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """
+        RFC-015: Generate completion with function/tool calling support.
+
+        Args:
+            messages: Conversation messages (including tool results).
+            tools: Tool schemas in OpenAI function calling format.
+            **kwargs: Additional arguments.
+
+        Returns:
+            LLMResponse with content and/or tool_calls.
+        """
+        import json
+
+        client = self._get_client()
+        config = self._merge_config(kwargs)
+
+        create_kwargs: dict[str, Any] = {
+            "model": kwargs.get("model", self.model),
+            "messages": messages,
+            "max_tokens": config["max_tokens"],
+            "temperature": config["temperature"],
+            "top_p": config["top_p"],
+        }
+
+        if config["stop"]:
+            create_kwargs["stop"] = config["stop"]
+
+        if tools:
+            create_kwargs["tools"] = tools
+
+        try:
+            response = await client.chat.completions.create(**create_kwargs)
+            choice = response.choices[0]
+            message = choice.message
+
+            # Parse tool calls if present
+            tool_calls: list[ToolCall] = []
+            if message.tool_calls:
+                for tc in message.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    tool_calls.append(ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=args,
+                    ))
+
+            # Token usage
+            usage = response.usage
+            input_tokens = usage.prompt_tokens if usage else 0
+            output_tokens = usage.completion_tokens if usage else 0
+
+            return LLMResponse(
+                content=message.content,
+                tool_calls=tool_calls,
+                tokens_used=input_tokens + output_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=response.model,
+                finish_reason=choice.finish_reason or "stop",
+            )
+
+        except Exception as e:
+            self._handle_error(e)
 
     async def stream(
         self,

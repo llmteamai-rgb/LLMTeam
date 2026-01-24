@@ -290,9 +290,15 @@ class AgentRetryExecutor:
 
                 # Check if we should retry
                 if attempt < max_retries:
+                    # RFC-020: Check for retry_after from provider
+                    provider_retry_after = getattr(e, "retry_after", None)
+
                     # Calculate delay
                     delay = 0.0
-                    if self._strategy:
+                    if provider_retry_after and isinstance(provider_retry_after, (int, float)) and provider_retry_after > 0:
+                        # Use provider-specified retry delay
+                        delay = float(provider_retry_after)
+                    elif self._strategy:
                         delay = self._strategy.get_delay(attempt)
                         delay = self._strategy.apply_jitter(
                             delay,

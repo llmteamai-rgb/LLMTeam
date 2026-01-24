@@ -176,3 +176,181 @@ class BudgetManager:
             "hard_limit": self._budget.hard_limit,
             "alert_threshold": self._budget.alert_threshold,
         }
+
+
+# RFC-019: Period-based budget tracking
+
+
+@dataclass
+class PeriodRecord:
+    """A single cost record with timestamp."""
+
+    cost: float
+    timestamp: float  # Unix timestamp
+    run_id: Optional[str] = None
+
+
+class PeriodBudgetManager:
+    """
+    RFC-019: Manages budgets across time periods (hour, day, month).
+
+    Tracks cost history and enforces limits per time period.
+
+    Example:
+        manager = PeriodBudgetManager(budgets={
+            BudgetPeriod.RUN: Budget(max_cost=5.0, period=BudgetPeriod.RUN),
+            BudgetPeriod.HOUR: Budget(max_cost=50.0, period=BudgetPeriod.HOUR),
+            BudgetPeriod.DAY: Budget(max_cost=200.0, period=BudgetPeriod.DAY),
+        })
+        manager.record(cost=1.5, run_id="run-1")
+        status = manager.check_period(BudgetPeriod.HOUR)
+    """
+
+    def __init__(
+        self,
+        budgets: Optional[Dict[BudgetPeriod, Budget]] = None,
+    ):
+        self._budgets: Dict[BudgetPeriod, Budget] = budgets or {}
+        self._records: List[PeriodRecord] = []
+        self._alert_callbacks: List[Callable[[BudgetPeriod, float, float], None]] = []
+        self._alerted_periods: set = set()
+
+    @property
+    def budgets(self) -> Dict[BudgetPeriod, Budget]:
+        """Configured budgets by period."""
+        return self._budgets
+
+    def add_budget(self, budget: Budget) -> None:
+        """Add or replace a budget for a period."""
+        self._budgets[budget.period] = budget
+
+    def on_alert(self, callback: Callable[[BudgetPeriod, float, float], None]) -> None:
+        """
+        Register alert callback.
+
+        Callback receives (period, current_cost, max_cost).
+        """
+        self._alert_callbacks.append(callback)
+
+    def record(self, cost: float, run_id: Optional[str] = None) -> None:
+        """
+        Record a cost entry.
+
+        Args:
+            cost: Cost in USD
+            run_id: Optional run identifier
+        """
+        import time
+        self._records.append(PeriodRecord(
+            cost=cost,
+            timestamp=time.time(),
+            run_id=run_id,
+        ))
+
+    def get_period_cost(self, period: BudgetPeriod) -> float:
+        """
+        Get total cost for the current time period.
+
+        Args:
+            period: Time period to check
+
+        Returns:
+            Total cost in USD for the period
+        """
+        import time
+        now = time.time()
+
+        if period == BudgetPeriod.RUN:
+            # RUN period: return latest run cost (handled separately)
+            return 0.0
+
+        # Calculate period window in seconds
+        window_seconds = {
+            BudgetPeriod.HOUR: 3600,
+            BudgetPeriod.DAY: 86400,
+            BudgetPeriod.MONTH: 2592000,  # 30 days
+        }.get(period, 3600)
+
+        cutoff = now - window_seconds
+        return sum(r.cost for r in self._records if r.timestamp >= cutoff)
+
+    def check_period(self, period: BudgetPeriod) -> BudgetStatus:
+        """
+        Check budget status for a specific period.
+
+        Args:
+            period: Period to check
+
+        Returns:
+            BudgetStatus
+        """
+        budget = self._budgets.get(period)
+        if budget is None:
+            return BudgetStatus.OK
+
+        current = self.get_period_cost(period)
+        ratio = current / budget.max_cost if budget.max_cost > 0 else 0.0
+
+        if ratio >= 1.0:
+            if budget.hard_limit:
+                return BudgetStatus.EXCEEDED
+            return BudgetStatus.WARNING
+
+        if ratio >= budget.alert_threshold:
+            if period not in self._alerted_periods:
+                self._alerted_periods.add(period)
+                for cb in self._alert_callbacks:
+                    cb(period, current, budget.max_cost)
+            return BudgetStatus.ALERT
+
+        return BudgetStatus.OK
+
+    def check_all(self) -> Dict[BudgetPeriod, BudgetStatus]:
+        """
+        Check all configured budgets.
+
+        Returns:
+            Dict mapping each period to its status
+        """
+        return {period: self.check_period(period) for period in self._budgets}
+
+    def check_all_or_raise(self) -> Dict[BudgetPeriod, BudgetStatus]:
+        """
+        Check all budgets and raise if any hard limit is exceeded.
+
+        Raises:
+            BudgetExceededError: If any hard limit exceeded
+        """
+        results = self.check_all()
+        for period, status in results.items():
+            if status == BudgetStatus.EXCEEDED:
+                budget = self._budgets[period]
+                current = self.get_period_cost(period)
+                raise BudgetExceededError(current, budget.max_cost)
+        return results
+
+    def remaining(self, period: BudgetPeriod) -> float:
+        """Get remaining budget for a period."""
+        budget = self._budgets.get(period)
+        if budget is None:
+            return float("inf")
+        return budget.max_cost - self.get_period_cost(period)
+
+    def reset(self) -> None:
+        """Clear all records and alert state."""
+        self._records.clear()
+        self._alerted_periods.clear()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize all period budget states."""
+        result: Dict[str, Any] = {}
+        for period, budget in self._budgets.items():
+            current = self.get_period_cost(period)
+            result[period.value] = {
+                "max_cost": budget.max_cost,
+                "current_cost": round(current, 6),
+                "remaining": round(budget.max_cost - current, 6),
+                "status": self.check_period(period).value,
+                "hard_limit": budget.hard_limit,
+            }
+        return result
