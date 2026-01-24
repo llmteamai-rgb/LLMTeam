@@ -12,7 +12,6 @@ from llmteam.orchestration import (
     EscalationRequest,
     EscalationResponse,
     GroupEscalationAction,
-    EscalationAction,  # Alias for GroupEscalationAction
     TeamReport,
     GroupReport,
     GroupResult,
@@ -42,9 +41,6 @@ class TestGroupEscalationAction:
         assert GroupEscalationAction.CONTINUE.value == "continue"
         assert GroupEscalationAction.HUMAN.value == "human"
 
-    def test_escalation_action_alias(self):
-        """EscalationAction should be alias for GroupEscalationAction."""
-        assert EscalationAction is GroupEscalationAction
 
 
 class TestGroupRole:
@@ -116,11 +112,11 @@ class TestEscalationModels:
     def test_escalation_response(self):
         """EscalationResponse should provide action."""
         response = EscalationResponse(
-            action=EscalationAction.RETRY,
+            action=GroupEscalationAction.RETRY,
             reason="Auto-retry on error",
         )
 
-        assert response.action == EscalationAction.RETRY
+        assert response.action == GroupEscalationAction.RETRY
         assert response.reason == "Auto-retry on error"
         assert response.route_to_team is None
 

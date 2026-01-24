@@ -127,7 +127,6 @@ AgentReport                    — Automatic reporting to orchestrator
 | `mining/` | ProcessMiningEngine, ProcessEvent, ProcessMetrics |
 | `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator (RFC-008) |
 | `builder/` | **DynamicTeamBuilder**, TeamBlueprint, AgentBlueprint, TOOL_MAP (RFC-021) |
-| `roles/` | Legacy module (deprecated, re-exports from new locations) |
 
 **Canvas & Runtime:**
 | Module | Purpose |

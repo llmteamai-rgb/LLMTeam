@@ -18,7 +18,7 @@ from llmteam.orchestration.models import (
     GroupContext,
     EscalationRequest,
     EscalationResponse,
-    EscalationAction,
+    GroupEscalationAction,
 )
 
 if TYPE_CHECKING:
@@ -406,10 +406,10 @@ class GroupOrchestrator:
                 if not result.success:
                     # Handle via escalation if possible
                     response = await self._handle_team_failure(team_id, result)
-                    if response.action == EscalationAction.ABORT:
+                    if response.action == GroupEscalationAction.ABORT:
                         errors.append(f"{team_id}: {result.error}")
                         break
-                    elif response.action == EscalationAction.SKIP:
+                    elif response.action == GroupEscalationAction.SKIP:
                         continue
 
                 # Pass output to next team
@@ -569,7 +569,7 @@ class GroupOrchestrator:
         # Check depth limit
         if self._escalation_count > self._max_escalation_depth:
             return EscalationResponse(
-                action=EscalationAction.ABORT,
+                action=GroupEscalationAction.ABORT,
                 reason=f"Max escalation depth ({self._max_escalation_depth}) exceeded",
             )
 
@@ -581,7 +581,7 @@ class GroupOrchestrator:
         else:
             # REPORT_COLLECTOR / AGGREGATOR: just log
             return EscalationResponse(
-                action=EscalationAction.CONTINUE,
+                action=GroupEscalationAction.CONTINUE,
                 reason=f"{self._role.value} does not handle escalations",
             )
 
@@ -592,11 +592,11 @@ class GroupOrchestrator:
         """Decision for COORDINATOR role."""
         if request.error:
             return EscalationResponse(
-                action=EscalationAction.RETRY,
+                action=GroupEscalationAction.RETRY,
                 reason="Coordinator auto-retry on error",
             )
         return EscalationResponse(
-            action=EscalationAction.CONTINUE,
+            action=GroupEscalationAction.CONTINUE,
             reason="No error, continuing",
         )
 
@@ -608,7 +608,7 @@ class GroupOrchestrator:
         llm = self._get_llm()
         if not llm:
             return EscalationResponse(
-                action=EscalationAction.ABORT,
+                action=GroupEscalationAction.ABORT,
                 reason="No LLM available for escalation decision",
             )
 
@@ -624,7 +624,7 @@ class GroupOrchestrator:
             return self._parse_escalation_response(response)
         except Exception:
             return EscalationResponse(
-                action=EscalationAction.ABORT,
+                action=GroupEscalationAction.ABORT,
                 reason="LLM call failed",
             )
 
@@ -957,7 +957,7 @@ or
         """Parse LLM escalation response."""
         try:
             data = json.loads(response)
-            action = EscalationAction[data.get("action", "ABORT").upper()]
+            action = GroupEscalationAction[data.get("action", "ABORT").upper()]
             return EscalationResponse(
                 action=action,
                 reason=data.get("reason", ""),
@@ -965,7 +965,7 @@ or
             )
         except (json.JSONDecodeError, KeyError):
             return EscalationResponse(
-                action=EscalationAction.ABORT,
+                action=GroupEscalationAction.ABORT,
                 reason="Could not parse LLM response",
             )
 

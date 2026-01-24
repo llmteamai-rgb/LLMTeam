@@ -137,7 +137,7 @@ async def audit_trail(memory_audit_store):
 @pytest.fixture
 def process_mining_engine():
     """Create a fresh ProcessMiningEngine."""
-    from llmteam.roles import ProcessMiningEngine
+    from llmteam.mining import ProcessMiningEngine
 
     engine = ProcessMiningEngine()
     _register_for_cleanup(engine)

@@ -79,10 +79,6 @@ class GroupEscalationAction(Enum):
     """Requires human intervention."""
 
 
-# Backward compatibility alias
-EscalationAction = GroupEscalationAction
-
-
 @dataclass
 class GroupContext:
     """
@@ -161,7 +157,7 @@ class EscalationRequest:
 class EscalationResponse:
     """Response to escalation from GroupOrchestrator."""
 
-    action: EscalationAction
+    action: GroupEscalationAction
     """Action for the team."""
 
     reason: str = ""
@@ -183,7 +179,6 @@ class EscalationResponse:
 __all__ = [
     "TeamRole",
     "GroupEscalationAction",
-    "EscalationAction",  # Backward compatibility alias
     "GroupContext",
     "EscalationRequest",
     "EscalationResponse",

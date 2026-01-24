@@ -1133,7 +1133,7 @@ class LLMTeam:
         Raises:
             RuntimeError: If team is not in a group or escalation not allowed
         """
-        from llmteam.orchestration.models import EscalationRequest, EscalationResponse, EscalationAction
+        from llmteam.orchestration.models import EscalationRequest, EscalationResponse
 
         if not self._group_context:
             raise RuntimeError(
