@@ -5,9 +5,13 @@ Defines configuration structures for all agent types.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from llmteam.agents.types import AgentType, AgentMode
+
+if TYPE_CHECKING:
+    from llmteam.agents.retry import RetryPolicy, CircuitBreakerPolicy
+    from llmteam.tools import ToolDefinition
 
 
 @dataclass
@@ -31,6 +35,13 @@ class AgentConfig:
     # Metadata
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # RFC-012: Per-agent retry & circuit breaker policies
+    retry_policy: Optional["RetryPolicy"] = None
+    circuit_breaker: Optional["CircuitBreakerPolicy"] = None
+
+    # RFC-013: Per-agent tools
+    tools: Optional[List["ToolDefinition"]] = None
 
     def __post_init__(self):
         if not self.role:

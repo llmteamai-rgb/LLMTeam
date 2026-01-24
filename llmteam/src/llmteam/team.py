@@ -23,13 +23,20 @@ from typing import Optional
 @dataclass
 class TeamConfig:
     """
-    Team configuration (deprecated).
+    Team configuration.
 
-    Use LLMTeam constructor arguments directly instead.
+    Can be passed to LLMTeam constructor for advanced settings.
+
+    Args:
+        strict_validation: Validate agent configs strictly
+        timeout: Default execution timeout in seconds
+        enforce_lifecycle: Enable lifecycle state enforcement (RFC-014).
+                          When True, team must be configured before running.
     """
 
     strict_validation: bool = True
     timeout: int = 30
+    enforce_lifecycle: bool = False
 
 
 __all__ = [

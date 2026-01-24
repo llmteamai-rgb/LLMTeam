@@ -16,6 +16,7 @@ from llmteam.events.store import (
     MemoryEventStore,
 )
 from llmteam.events.stream import EventStream
+from llmteam.events.streaming import StreamEventType, StreamEvent
 
 __all__ = [
     # Models
@@ -30,4 +31,7 @@ __all__ = [
     "MemoryEventStore",
     # Stream
     "EventStream",
+    # RFC-011: Streaming
+    "StreamEventType",
+    "StreamEvent",
 ]

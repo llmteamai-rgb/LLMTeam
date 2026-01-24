@@ -5,13 +5,16 @@ Orchestrates AI agents using ExecutionEngine internally (if available).
 When engine module is not installed, only ROUTER mode works.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import (
+    TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Optional, Union,
+)
 import uuid
 
 if TYPE_CHECKING:
     from llmteam.configuration import ConfigurationSession
     from llmteam.quality import CostEstimate
     from llmteam.orchestration.models import GroupContext, EscalationResponse
+    from llmteam.team.lifecycle import TeamLifecycle, TeamState
 
 from llmteam.agents.factory import AgentFactory
 from llmteam.agents.config import AgentConfig
@@ -24,6 +27,7 @@ from llmteam.agents.orchestrator import (
 from llmteam.team.result import RunResult, RunStatus, ContextMode
 from llmteam.team.snapshot import TeamSnapshot
 from llmteam.quality import QualityManager
+from llmteam.cost import CostTracker, Budget, BudgetManager, BudgetStatus
 
 # Check if engine module is available
 try:
@@ -65,6 +69,7 @@ class LLMTeam:
         timeout: Optional[int] = None,
         quality: Union[int, str] = 50,
         max_cost_per_run: Optional[float] = None,
+        enforce_lifecycle: bool = False,
         **kwargs,
     ):
         """
@@ -83,6 +88,9 @@ class LLMTeam:
                      Presets: "draft"=20, "economy"=30, "balanced"=50,
                      "production"=75, "best"=95, "auto"=adaptive
             max_cost_per_run: Optional cost limit per run in USD (safety)
+            enforce_lifecycle: Enable lifecycle state enforcement (RFC-014).
+                             When True, team must be configured and marked
+                             ready before running.
         """
         self.team_id = team_id
         self._flow = flow
@@ -93,6 +101,20 @@ class LLMTeam:
 
         # Quality management (RFC-008)
         self._quality_manager = QualityManager(quality)
+
+        # RFC-010: Cost tracking & budget management
+        self._cost_tracker = CostTracker()
+        self._budget_manager: Optional[BudgetManager] = None
+        if max_cost_per_run:
+            self._budget_manager = BudgetManager(
+                Budget(max_cost=max_cost_per_run)
+            )
+
+        # RFC-014: Lifecycle enforcement (opt-in)
+        self._lifecycle: Optional["TeamLifecycle"] = None
+        if enforce_lifecycle:
+            from llmteam.team.lifecycle import TeamLifecycle
+            self._lifecycle = TeamLifecycle()
 
         # Internal state
         self._agents: Dict[str, BaseAgent] = {}  # Only working agents
@@ -241,6 +263,18 @@ class LLMTeam:
         """Get the QualityManager instance."""
         return self._quality_manager
 
+    # Cost Tracking (RFC-010)
+
+    @property
+    def cost_tracker(self) -> CostTracker:
+        """Get the CostTracker instance (RFC-010)."""
+        return self._cost_tracker
+
+    @property
+    def budget_manager(self) -> Optional[BudgetManager]:
+        """Get the BudgetManager instance if configured (RFC-010)."""
+        return self._budget_manager
+
     async def estimate_cost(
         self,
         input_data: Optional[Dict[str, Any]] = None,
@@ -283,6 +317,48 @@ class LLMTeam:
             quality=self.quality,
             complexity=complexity,
         )
+
+    # Lifecycle (RFC-014)
+
+    @property
+    def lifecycle(self) -> Optional["TeamLifecycle"]:
+        """Get the lifecycle manager (RFC-014). None if not enforced."""
+        return self._lifecycle
+
+    @property
+    def state(self) -> Optional[str]:
+        """Current lifecycle state (RFC-014). None if lifecycle not enforced."""
+        if self._lifecycle:
+            return self._lifecycle.state.value
+        return None
+
+    def mark_configuring(self) -> None:
+        """
+        Transition to CONFIGURING state (RFC-014).
+
+        Raises:
+            LifecycleError: If transition is invalid
+            RuntimeError: If lifecycle is not enforced
+        """
+        if not self._lifecycle:
+            raise RuntimeError("Lifecycle not enforced. Use enforce_lifecycle=True.")
+        from llmteam.team.lifecycle import TeamState
+        self._lifecycle.transition_to(TeamState.CONFIGURING)
+
+    def mark_ready(self) -> None:
+        """
+        Transition to READY state (RFC-014).
+
+        Team is ready to run after configuration.
+
+        Raises:
+            LifecycleError: If transition is invalid
+            RuntimeError: If lifecycle is not enforced
+        """
+        if not self._lifecycle:
+            raise RuntimeError("Lifecycle not enforced. Use enforce_lifecycle=True.")
+        from llmteam.team.lifecycle import TeamState
+        self._lifecycle.transition_to(TeamState.READY)
 
     # Execution
 
@@ -328,9 +404,25 @@ class LLMTeam:
                 error="No agents in team",
             )
 
+        # RFC-014: Lifecycle enforcement
+        if self._lifecycle:
+            from llmteam.team.lifecycle import TeamState, LifecycleError
+            try:
+                self._lifecycle.ensure_ready()
+                self._lifecycle.transition_to(TeamState.RUNNING)
+            except LifecycleError as e:
+                return RunResult(
+                    success=False,
+                    status=RunStatus.FAILED,
+                    error=str(e),
+                )
+
         # Start orchestrator tracking
         if self._orchestrator:
             self._orchestrator.start_run(run_id)
+
+        # RFC-010: Start cost tracking
+        self._cost_tracker.start_run(run_id, self.team_id)
 
         try:
             # Check if ROUTER mode is enabled
@@ -344,9 +436,32 @@ class LLMTeam:
                 result.report = self._orchestrator.generate_report()
                 result.summary = self._orchestrator.get_summary()
 
+            # RFC-010: Attach cost info
+            run_cost = self._cost_tracker.end_run()
+            result.tokens_used = run_cost.total_tokens
+            if run_cost.total_cost > 0:
+                if result.summary is None:
+                    result.summary = {}
+                result.summary["cost"] = run_cost.to_dict()
+
+            # RFC-014: Transition to COMPLETED
+            if self._lifecycle:
+                from llmteam.team.lifecycle import TeamState
+                target = TeamState.COMPLETED if result.success else TeamState.FAILED
+                self._lifecycle.transition_to(target)
+
             return result
 
         except Exception as e:
+            # RFC-010: End cost tracking on error
+            if self._cost_tracker.current_run:
+                self._cost_tracker.end_run()
+
+            # RFC-014: Transition to FAILED
+            if self._lifecycle:
+                from llmteam.team.lifecycle import TeamState
+                self._lifecycle.transition_to(TeamState.FAILED)
+
             return RunResult(
                 success=False,
                 status=RunStatus.FAILED,
@@ -360,6 +475,219 @@ class LLMTeam:
             if self._orchestrator:
                 self._orchestrator.end_run()
             self._current_run_id = None
+
+    async def stream(
+        self,
+        input_data: Dict[str, Any],
+        run_id: Optional[str] = None,
+    ) -> AsyncIterator["StreamEvent"]:
+        """
+        Execute team with streaming events (RFC-011).
+
+        Yields StreamEvent objects during execution for real-time progress.
+        Only supported in ROUTER mode.
+
+        Args:
+            input_data: Input data for execution
+            run_id: Optional run identifier
+
+        Yields:
+            StreamEvent objects (RUN_STARTED, AGENT_STARTED, AGENT_COMPLETED, etc.)
+
+        Example:
+            async for event in team.stream({"query": "Hello"}):
+                if event.type == StreamEventType.TOKEN:
+                    print(event.data["token"], end="")
+                elif event.type == StreamEventType.AGENT_COMPLETED:
+                    print(f"Agent {event.agent_id} done")
+        """
+        from datetime import datetime
+        from llmteam.events.streaming import StreamEventType, StreamEvent
+
+        run_id = run_id or str(uuid.uuid4())
+        self._current_run_id = run_id
+
+        if not self._agents:
+            yield StreamEvent(
+                type=StreamEventType.RUN_FAILED,
+                data={"error": "No agents in team"},
+                run_id=run_id,
+            )
+            return
+
+        if not self.is_router_mode:
+            yield StreamEvent(
+                type=StreamEventType.RUN_FAILED,
+                data={"error": "Streaming only supported in ROUTER mode"},
+                run_id=run_id,
+            )
+            return
+
+        # Emit RUN_STARTED
+        yield StreamEvent(
+            type=StreamEventType.RUN_STARTED,
+            data={"team_id": self.team_id, "agents": list(self._agents.keys())},
+            run_id=run_id,
+        )
+
+        # Start orchestrator and cost tracking
+        if self._orchestrator:
+            self._orchestrator.start_run(run_id)
+        self._cost_tracker.start_run(run_id, self.team_id)
+
+        outputs = {}
+        agents_called = []
+        successful_agents = set()
+        current_state = {"input": input_data, "outputs": outputs}
+        iterations = 0
+        max_iterations = len(self._agents)
+        error_msg = None
+
+        try:
+            while iterations < max_iterations:
+                available_agents = [
+                    a for a in self._agents.keys()
+                    if a not in successful_agents
+                ]
+                if not available_agents:
+                    break
+
+                decision = await self._orchestrator.decide_next_agent(
+                    current_state=current_state,
+                    available_agents=available_agents,
+                )
+
+                if decision.next_agent is None or decision.next_agent == "":
+                    break
+
+                agent = self._agents.get(decision.next_agent)
+                if agent is None:
+                    iterations += 1
+                    continue
+
+                if decision.next_agent in successful_agents:
+                    break
+
+                # Emit AGENT_STARTED
+                yield StreamEvent(
+                    type=StreamEventType.AGENT_STARTED,
+                    data={"role": agent.role, "reason": decision.reason},
+                    run_id=run_id,
+                    agent_id=agent.agent_id,
+                )
+
+                # Build context
+                context = {"outputs": outputs}
+                if outputs:
+                    last_agent = agents_called[-1] if agents_called else None
+                    if last_agent and last_agent in outputs:
+                        context["previous"] = outputs[last_agent]
+
+                # Execute agent
+                result = await agent.execute(
+                    input_data=input_data,
+                    context=context,
+                    run_id=run_id,
+                )
+
+                # RFC-010: Record token usage
+                if result.tokens_used > 0:
+                    agent_model = getattr(agent, "model", self._model)
+                    estimated_input = int(result.tokens_used * 0.6)
+                    estimated_output = result.tokens_used - estimated_input
+                    self._cost_tracker.record_usage(
+                        model=agent_model,
+                        input_tokens=estimated_input,
+                        output_tokens=estimated_output,
+                        agent_id=agent.agent_id,
+                    )
+
+                    # Emit COST_UPDATE
+                    yield StreamEvent(
+                        type=StreamEventType.COST_UPDATE,
+                        data={
+                            "current_cost": self._cost_tracker.current_cost,
+                            "tokens": result.tokens_used,
+                        },
+                        run_id=run_id,
+                        agent_id=agent.agent_id,
+                    )
+
+                    # Check budget
+                    if self._budget_manager:
+                        status = self._budget_manager.check(
+                            self._cost_tracker.current_cost
+                        )
+                        if status == BudgetStatus.EXCEEDED:
+                            yield StreamEvent(
+                                type=StreamEventType.RUN_FAILED,
+                                data={"error": "Budget exceeded"},
+                                run_id=run_id,
+                            )
+                            break
+
+                # Store result
+                outputs[agent.agent_id] = result.output
+                agents_called.append(agent.agent_id)
+
+                # Emit AGENT_COMPLETED or AGENT_FAILED
+                if result.success:
+                    successful_agents.add(agent.agent_id)
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_COMPLETED,
+                        data={"output": result.output},
+                        run_id=run_id,
+                        agent_id=agent.agent_id,
+                    )
+                    break
+                else:
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_FAILED,
+                        data={"error": result.error or "Unknown error"},
+                        run_id=run_id,
+                        agent_id=agent.agent_id,
+                    )
+
+                current_state["outputs"] = outputs
+                current_state["last_agent"] = agent.agent_id
+                current_state["last_result"] = result.output
+                iterations += 1
+
+        except Exception as e:
+            error_msg = str(e)
+            yield StreamEvent(
+                type=StreamEventType.RUN_FAILED,
+                data={"error": error_msg},
+                run_id=run_id,
+            )
+
+        finally:
+            # End cost tracking
+            if self._cost_tracker.current_run:
+                run_cost = self._cost_tracker.end_run()
+            else:
+                run_cost = None
+
+            if self._orchestrator:
+                self._orchestrator.end_run()
+            self._current_run_id = None
+
+        # Emit RUN_COMPLETED
+        if not error_msg:
+            final_output = None
+            if agents_called and agents_called[-1] in outputs:
+                final_output = outputs[agents_called[-1]]
+
+            yield StreamEvent(
+                type=StreamEventType.RUN_COMPLETED,
+                data={
+                    "success": len(successful_agents) > 0,
+                    "output": final_output,
+                    "agents_called": agents_called,
+                    "cost": run_cost.to_dict() if run_cost else None,
+                },
+                run_id=run_id,
+            )
 
     async def _run_canvas_mode(
         self,
@@ -491,6 +819,26 @@ class LLMTeam:
                 context=context,
                 run_id=run_id,
             )
+
+            # RFC-010: Record token usage for cost tracking
+            if result.tokens_used > 0:
+                agent_model = getattr(agent, "model", self._model)
+                # Estimate input/output split (60/40 heuristic when no detail)
+                estimated_input = int(result.tokens_used * 0.6)
+                estimated_output = result.tokens_used - estimated_input
+                self._cost_tracker.record_usage(
+                    model=agent_model,
+                    input_tokens=estimated_input,
+                    output_tokens=estimated_output,
+                    agent_id=agent.agent_id,
+                )
+
+                # Check budget
+                if self._budget_manager:
+                    from llmteam.cost import BudgetExceededError
+                    status = self._budget_manager.check(self._cost_tracker.current_cost)
+                    if status == BudgetStatus.EXCEEDED:
+                        break  # Stop execution
 
             # Store result
             outputs[agent.agent_id] = result.output

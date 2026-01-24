@@ -19,6 +19,8 @@ from llmteam.agents.config import AgentConfig
 from llmteam.agents.state import AgentState
 from llmteam.agents.result import AgentResult
 from llmteam.agents.report import AgentReport
+from llmteam.agents.retry import AgentRetryExecutor, RetryMetrics
+from llmteam.tools import ToolExecutor, ToolDefinition
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
@@ -76,6 +78,20 @@ class BaseAgent(ABC):
         self._config = config
         self._state = None
 
+        # RFC-012: Per-agent retry executor
+        self._retry_executor: Optional[AgentRetryExecutor] = None
+        if config.retry_policy or config.circuit_breaker:
+            self._retry_executor = AgentRetryExecutor(
+                agent_id=config.id or config.role,
+                retry_policy=config.retry_policy,
+                circuit_breaker_policy=config.circuit_breaker,
+            )
+
+        # RFC-013: Per-agent tool executor
+        self._tool_executor: Optional[ToolExecutor] = None
+        if config.tools:
+            self._tool_executor = ToolExecutor(tools=config.tools)
+
         # Copy from config
         self.agent_id = config.id or config.role
         self.role = config.role
@@ -103,6 +119,16 @@ class BaseAgent(ABC):
     def status(self) -> AgentStatus:
         """Current status."""
         return self._state.status if self._state else AgentStatus.IDLE
+
+    @property
+    def retry_executor(self) -> Optional[AgentRetryExecutor]:
+        """Per-agent retry executor (RFC-012). None if no policy configured."""
+        return self._retry_executor
+
+    @property
+    def tool_executor(self) -> Optional[ToolExecutor]:
+        """Per-agent tool executor (RFC-013). None if no tools configured."""
+        return self._tool_executor
 
     # Abstract Methods
 
@@ -183,10 +209,13 @@ class BaseAgent(ABC):
         run_id: str,
     ) -> AgentResult:
         """
-        INTERNAL: Execution wrapper with lifecycle hooks.
+        INTERNAL: Execution wrapper with lifecycle hooks and retry.
 
         Called ONLY by TeamOrchestrator/TeamRunner, never directly.
         Do NOT call this method from user code - use team.run() instead.
+
+        RFC-012: If retry_policy or circuit_breaker is configured,
+        wraps _execute() with retry/circuit breaker logic.
         """
         started_at = datetime.utcnow()
 
@@ -203,10 +232,24 @@ class BaseAgent(ABC):
             # Pre-hook
             await self.on_start(self._state)
 
-            # Execute (calls subclass implementation)
-            result = await self._execute(input_data, context)
+            # Execute with retry (RFC-012) or direct
+            retry_metrics: Optional[RetryMetrics] = None
+
+            if self._retry_executor:
+                result, retry_metrics = await self._retry_executor.execute(
+                    self._execute, input_data, context
+                )
+            else:
+                result = await self._execute(input_data, context)
+
             result.agent_id = self.agent_id
             result.agent_type = self.agent_type
+
+            # Attach retry metrics if available
+            if retry_metrics:
+                if result.context_payload is None:
+                    result.context_payload = {}
+                result.context_payload["retry_metrics"] = retry_metrics.to_dict()
 
             # Update state
             self._state.mark_completed()
@@ -230,6 +273,30 @@ class BaseAgent(ABC):
             self._state.mark_failed(e)
             await self.on_error(e)
 
+            # Build error result with retry metrics if available
+            error_result = AgentResult(
+                output=None,
+                agent_id=self.agent_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=str(e),
+            )
+
+            # Attach circuit breaker info if relevant
+            if self._retry_executor:
+                cb_metrics = self._retry_executor.get_circuit_breaker_metrics()
+                if cb_metrics:
+                    error_result.context_payload = {
+                        "circuit_breaker": cb_metrics,
+                    }
+                # Flag for escalation if circuit breaker opened
+                from llmteam.clients.circuit_breaker import CircuitBreakerOpen
+                if isinstance(e, CircuitBreakerOpen):
+                    error_result.should_escalate = True
+                    error_result.escalation_reason = (
+                        f"Circuit breaker open for agent '{self.agent_id}': {e}"
+                    )
+
             # Report failure to orchestrator
             await self._report(
                 started_at=started_at,
@@ -239,13 +306,7 @@ class BaseAgent(ABC):
                 error=e,
             )
 
-            return AgentResult(
-                output=None,
-                agent_id=self.agent_id,
-                agent_type=self.agent_type,
-                success=False,
-                error=str(e),
-            )
+            return error_result
 
     # Backward compatibility alias (deprecated)
     async def execute(

@@ -4,6 +4,13 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 5.3.0 (RFC-010/011/012/013/014: Enterprise Features)
+    - New: RFC-012 Per-agent RetryPolicy & CircuitBreakerPolicy
+    - New: RFC-010 CostTracker, BudgetManager, PricingRegistry
+    - New: RFC-011 StreamEventType, StreamEvent, LLMTeam.stream()
+    - New: RFC-013 ToolDefinition, @tool decorator, ToolExecutor (per-agent)
+    - New: RFC-014 TeamState, TeamLifecycle, enforce_lifecycle opt-in
+
 Version: 5.2.0 (RFC-009: Group Architecture Unification)
     - New: TeamRole enum (LEADER, MEMBER, SPECIALIST, FALLBACK)
     - New: GroupRole extensions (COORDINATOR, ROUTER, AGGREGATOR, ARBITER)
@@ -55,7 +62,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.2.0"
+__version__ = "5.3.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -207,6 +214,9 @@ from llmteam.events import (
     EventStore,
     MemoryEventStore,
     EventStream,
+    # RFC-011: Streaming
+    StreamEventType,
+    StreamEvent,
 )
 
 # v2.0.0: Canvas Integration (now Engine)
@@ -339,6 +349,11 @@ from llmteam.agents import (
     RoutingDecision,
     RecoveryDecision,
     RecoveryAction,
+    # RFC-012: Per-agent Retry & Circuit Breaker
+    RetryPolicy,
+    CircuitBreakerPolicy,
+    RetryMetrics,
+    AgentRetryExecutor,
 )
 
 # v4.0.0: LLMTeam and LLMGroup
@@ -399,6 +414,39 @@ from llmteam.configuration import (
     PipelinePreview,
     ConfiguratorPrompts,
     ConfigurationSession,
+)
+
+# RFC-010: Cost Tracking & Budget Management
+from llmteam.cost import (
+    ModelPricing,
+    PricingRegistry,
+    TokenUsage,
+    RunCost,
+    CostTracker,
+    Budget,
+    BudgetPeriod,
+    BudgetStatus,
+    BudgetManager,
+    BudgetExceededError,
+)
+
+# RFC-014: Enhanced Configurator Mode (opt-in lifecycle)
+from llmteam.team.lifecycle import (
+    TeamState,
+    ProposalStatus,
+    ConfigurationProposal,
+    TeamLifecycle,
+    LifecycleError,
+)
+
+# RFC-013: Tool/Function Calling
+from llmteam.tools import (
+    ParamType,
+    ToolParameter,
+    ToolDefinition,
+    ToolResult,
+    tool,
+    ToolExecutor,
 )
 
 # RFC-008: Quality Slider
@@ -583,6 +631,9 @@ __all__ = [
     "EventStore",
     "MemoryEventStore",
     "EventStream",
+    # RFC-011: Streaming
+    "StreamEventType",
+    "StreamEvent",
 
     # Engine Integration (v5.0.0, formerly Canvas v2.0.0)
     "PortDefinition",
@@ -660,6 +711,12 @@ __all__ = [
     "RecoveryDecision",
     "RecoveryAction",
 
+    # RFC-012: Per-agent Retry & Circuit Breaker
+    "RetryPolicy",
+    "CircuitBreakerPolicy",
+    "RetryMetrics",
+    "AgentRetryExecutor",
+
     # v4.0.0: Team
     "LLMTeam",
     "LLMGroup",
@@ -709,6 +766,33 @@ __all__ = [
     "PipelinePreview",
     "ConfiguratorPrompts",
     "ConfigurationSession",
+
+    # RFC-010: Cost Tracking & Budget Management
+    "ModelPricing",
+    "PricingRegistry",
+    "TokenUsage",
+    "RunCost",
+    "CostTracker",
+    "Budget",
+    "BudgetPeriod",
+    "BudgetStatus",
+    "BudgetManager",
+    "BudgetExceededError",
+
+    # RFC-014: Enhanced Configurator Mode
+    "TeamState",
+    "ProposalStatus",
+    "ConfigurationProposal",
+    "TeamLifecycle",
+    "LifecycleError",
+
+    # RFC-013: Tool/Function Calling
+    "ParamType",
+    "ToolParameter",
+    "ToolDefinition",
+    "ToolResult",
+    "tool",
+    "ToolExecutor",
 
     # RFC-008: Quality Slider
     "QualityManager",

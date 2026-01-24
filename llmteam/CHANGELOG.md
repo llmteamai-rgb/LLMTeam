@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-01-24
+
+### Added
+
+- **RFC-012: Retry Policies & Circuit Breaker** - Per-agent retry and circuit breaker:
+  - `RetryPolicy` - Configurable retry with exponential/linear/constant backoff
+  - `CircuitBreakerPolicy` - Per-agent circuit breaker (CLOSED → OPEN → HALF_OPEN)
+  - `RetryMetrics` - Retry execution metrics attached to AgentResult
+  - `AgentRetryExecutor` - Wraps agent execution with retry/circuit breaker logic
+  - `AgentConfig.retry_policy` / `AgentConfig.circuit_breaker` fields
+
+- **RFC-010: Cost Tracking & Budget Management** - Real-time cost tracking:
+  - `ModelPricing` / `PricingRegistry` - Model pricing with prefix matching
+  - `TokenUsage` / `RunCost` - Token usage and per-run cost aggregation
+  - `CostTracker` - Tracks costs across runs with history
+  - `Budget` / `BudgetManager` - Budget limits with alert/exceed thresholds
+  - `BudgetExceededError` - Raised on hard budget limit
+  - `LLMTeam.cost_tracker` / `LLMTeam.budget_manager` properties
+  - `LLMTeam(max_cost_per_run=)` parameter
+
+- **RFC-011: Streaming Output** - Real-time event streaming:
+  - `StreamEventType` - Event types (RUN_STARTED/COMPLETED, AGENT_STARTED/COMPLETED, TOKEN, etc.)
+  - `StreamEvent` - Streaming event with type, data, timestamps
+  - `StreamEvent.to_dict()` / `StreamEvent.to_sse()` - Serialization for SSE/WebSocket
+  - `LLMTeam.stream()` - Async iterator yielding StreamEvent during execution
+
+- **RFC-013: Tool/Function Calling** - Per-agent tool definitions:
+  - `ParamType` - Supported types (STRING, INTEGER, FLOAT, BOOLEAN, LIST, DICT)
+  - `ToolParameter` - Parameter definition with validation and coercion
+  - `ToolDefinition` - Tool definition with OpenAI-compatible schema generation
+  - `ToolResult` - Tool execution result
+  - `@tool` decorator - Convert functions to ToolDefinition automatically
+  - `ToolExecutor` - Safe tool execution with timeout and history
+  - `AgentConfig.tools` field for per-agent tool lists
+
+- **RFC-014: Enhanced Configurator Mode** - Opt-in lifecycle enforcement:
+  - `TeamState` enum (UNCONFIGURED → CONFIGURING → READY → RUNNING → COMPLETED/FAILED)
+  - `ConfigurationProposal` / `ProposalStatus` - Track configuration changes
+  - `TeamLifecycle` - State machine with valid transitions
+  - `LifecycleError` - Invalid state transition errors
+  - `LLMTeam(enforce_lifecycle=True)` - Opt-in lifecycle enforcement
+  - `LLMTeam.mark_configuring()` / `LLMTeam.mark_ready()` methods
+  - `LLMTeam.state` / `LLMTeam.lifecycle` properties
+
 ## [5.2.0] - 2026-01-21
 
 ### Added

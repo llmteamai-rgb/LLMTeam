@@ -98,6 +98,38 @@ class AgentFactory:
                         from llmteam.agents.types import AgentMode
 
                         filtered[k] = AgentMode(v)
+                    elif k == "retry_policy" and isinstance(v, dict):
+                        from llmteam.agents.retry import RetryPolicy
+
+                        filtered[k] = RetryPolicy(**v)
+                    elif k == "circuit_breaker" and isinstance(v, dict):
+                        from llmteam.agents.retry import CircuitBreakerPolicy
+
+                        filtered[k] = CircuitBreakerPolicy(**v)
+                    elif k == "tools" and isinstance(v, list):
+                        from llmteam.tools import ToolDefinition, ToolParameter, ParamType
+
+                        tool_defs = []
+                        for tool_dict in v:
+                            if isinstance(tool_dict, dict):
+                                params = []
+                                for p in tool_dict.get("parameters", []):
+                                    params.append(ToolParameter(
+                                        name=p["name"],
+                                        type=ParamType(p.get("type", "string")),
+                                        description=p.get("description", ""),
+                                        required=p.get("required", True),
+                                        default=p.get("default"),
+                                    ))
+                                tool_defs.append(ToolDefinition(
+                                    name=tool_dict["name"],
+                                    description=tool_dict.get("description", ""),
+                                    parameters=params,
+                                    handler=tool_dict.get("handler"),
+                                ))
+                            else:
+                                tool_defs.append(tool_dict)
+                        filtered[k] = tool_defs
                     else:
                         filtered[k] = v
 

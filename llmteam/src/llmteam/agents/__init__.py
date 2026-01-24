@@ -23,6 +23,12 @@ from llmteam.agents.presets import (
     create_kag_config,
 )
 from llmteam.agents.report import AgentReport
+from llmteam.agents.retry import (
+    RetryPolicy,
+    CircuitBreakerPolicy,
+    RetryMetrics,
+    AgentRetryExecutor,
+)
 from llmteam.agents.orchestrator import (
     TeamOrchestrator,
     OrchestratorMode,
@@ -63,6 +69,11 @@ __all__ = [
     "create_kag_config",
     # Report
     "AgentReport",
+    # RFC-012: Retry & Circuit Breaker
+    "RetryPolicy",
+    "CircuitBreakerPolicy",
+    "RetryMetrics",
+    "AgentRetryExecutor",
     # Orchestrator
     "TeamOrchestrator",
     "OrchestratorMode",
