@@ -22,7 +22,7 @@ except ImportError:
 
 from llmteam import LLMTeam
 from llmteam.agents.orchestrator import OrchestratorMode
-from llmteam.quality import QualityManager, QualityPreset
+from llmteam.quality import QualityManager
 from llmteam.events.streaming import StreamEventType
 
 
@@ -486,6 +486,20 @@ def render_history():
 
 
 # === Quality Info ===
+def get_preset_name(quality: int) -> str:
+    """Get preset name from quality value."""
+    if quality <= 20:
+        return "draft"
+    elif quality <= 30:
+        return "economy"
+    elif quality <= 60:
+        return "balanced"
+    elif quality <= 80:
+        return "production"
+    else:
+        return "best"
+
+
 def render_quality_info(settings: Dict[str, Any]):
     """Render quality information."""
     st.header("📊 Quality Info")
@@ -496,7 +510,7 @@ def render_quality_info(settings: Dict[str, Any]):
 
     with col1:
         st.metric("Quality Level", settings["quality"])
-        st.write(f"**Preset:** {manager.preset.name}")
+        st.write(f"**Preset:** {get_preset_name(settings['quality'])}")
 
     with col2:
         params = manager.get_generation_params()
