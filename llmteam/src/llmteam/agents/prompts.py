@@ -2,6 +2,8 @@
 Prompts for TeamOrchestrator.
 
 Predefined prompts for routing, recovery, and reporting decisions.
+
+RFC-019: Quality-aware prompts with quality context.
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List
@@ -34,6 +36,7 @@ ROUTING_PROMPT = """Based on the current state and execution history, decide whi
 ## Current State
 Input: {input_summary}
 Progress: {progress}
+Quality Level: {quality}/100
 
 ## Execution History
 {execution_log}
@@ -47,6 +50,11 @@ You are orchestrating a team of agents. For each task:
 2. After that agent completes successfully, the task is DONE
 3. Do NOT call the same agent twice for the same task
 4. Do NOT call another agent unless the first one failed
+
+Quality guidance (RFC-019):
+- At quality < 30: Prefer quick, simple solutions with fewer agents
+- At quality 30-70: Balance speed and thoroughness
+- At quality > 70: Prefer thorough, multi-step approaches if needed
 
 IMPORTANT: If an agent has already successfully handled the task, return null to indicate completion.
 
@@ -71,6 +79,7 @@ ERROR_RECOVERY_PROMPT = """An error occurred during agent execution. Decide the 
 Agent: {failed_agent}
 Error Type: {error_type}
 Error Message: {error_message}
+Quality Level: {quality}/100
 
 ## Context
 {context}
@@ -91,6 +100,11 @@ Consider:
 1. Is the error transient (retry might help)?
 2. Can another agent handle this task?
 3. Is the error critical (abort required)?
+
+Quality guidance (RFC-019):
+- At quality < 30: Prefer quick recovery (SKIP or simple RETRY)
+- At quality 30-70: Balance recovery effort with time constraints
+- At quality > 70: Prefer thorough recovery (RETRY with modifications, FALLBACK)
 
 Respond in JSON format:
 {{
@@ -146,6 +160,8 @@ def build_routing_prompt(
     """
     Build routing prompt with current context.
 
+    RFC-019: Includes quality level from team.
+
     Args:
         team: The team being orchestrated
         current_state: Current execution state
@@ -185,9 +201,13 @@ def build_routing_prompt(
     else:
         progress = f"{len(execution_history)} agents executed"
 
+    # RFC-019: Get quality from team
+    quality = getattr(team, "quality", 50)
+
     return ROUTING_PROMPT.format(
         input_summary=input_str,
         progress=progress,
+        quality=quality,
         execution_log="\n".join(exec_log) if exec_log else "No agents executed yet",
         agent_descriptions="\n".join(agent_descriptions),
     )
@@ -201,6 +221,8 @@ def build_recovery_prompt(
 ) -> str:
     """
     Build error recovery prompt.
+
+    RFC-019: Includes quality level from team.
 
     Args:
         error: The exception that occurred
@@ -225,10 +247,14 @@ def build_recovery_prompt(
     if len(context_summary) > 500:
         context_summary = context_summary[:500] + "..."
 
+    # RFC-019: Get quality from team
+    quality = getattr(team, "quality", 50)
+
     return ERROR_RECOVERY_PROMPT.format(
         failed_agent=failed_agent,
         error_type=type(error).__name__,
         error_message=str(error),
+        quality=quality,
         context=context_summary,
         execution_log="\n".join(exec_log) if exec_log else "None",
     )
