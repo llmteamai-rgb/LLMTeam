@@ -6,12 +6,13 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Current Version: v5.3.0
+## Current Version: v5.5.0
 
 ### Key Features
 
 - **Three Agent Types** — LLM, RAG, KAG (config-driven, no custom agent classes)
 - **Simple API** — Create agents via dict, no boilerplate
+- **Quality Slider** — Single 0-100 parameter controls quality/cost tradeoff everywhere
 - **SegmentRunner Integration** — LLMTeam uses Canvas runtime internally
 - **LLMGroup** — Multi-team coordination with automatic routing
 - **Presets** — Ready-to-use orchestrator, summarizer, reviewer configs
@@ -20,6 +21,7 @@ Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 - **Streaming** — Async generator-based event streaming for real-time progress
 - **Tool/Function Calling** — `@tool` decorator, ToolExecutor, OpenAI-compatible schemas
 - **Lifecycle Management** — Opt-in team state machine (configure → ready → run)
+- **Dynamic Team Builder** — LLM analyzes task and creates optimal team automatically
 
 ## Installation
 
@@ -232,6 +234,84 @@ team.mark_ready()
 result2 = await team.run({"query": "test2"})
 ```
 
+## Quality Slider (v5.5.0)
+
+Single 0-100 parameter controls quality/cost tradeoff for ALL LLM calls:
+
+```python
+from llmteam import LLMTeam, QualityManager
+
+# Create team with quality setting
+team = LLMTeam(
+    team_id="content",
+    agents=[{"type": "llm", "role": "writer", "prompt": "Write: {query}"}],
+    quality=70,              # 0-100 (higher = better quality, higher cost)
+    max_cost_per_run=1.00,   # Optional budget limit
+)
+
+# Or use preset names
+team = LLMTeam(team_id="fast", quality="draft")       # quality=20
+team = LLMTeam(team_id="prod", quality="production")  # quality=75
+
+# Get cost estimate BEFORE running
+estimate = await team.estimate_cost(complexity="medium")
+print(f"Estimated: ${estimate.min_cost:.4f} - ${estimate.max_cost:.4f}")
+
+# Run with quality override
+result = await team.run({"query": "..."}, quality=90)      # Override for this run
+result = await team.run({"query": "..."}, importance="high")  # +20 quality boost
+
+# Stream with quality
+async for event in team.stream({"query": "..."}, quality=80):
+    print(event)
+```
+
+### Quality Levels
+
+| Quality | Preset | Model | Temperature | Max Tokens | Use Case |
+|---------|--------|-------|-------------|------------|----------|
+| 0-30 | draft, economy | gpt-4o-mini | 0.3 | 500 | Quick iteration, testing |
+| 30-70 | balanced | gpt-4o | 0.5 | 1000 | Standard production |
+| 70-100 | production, best | gpt-4-turbo | 0.7 | 2000 | High-quality output |
+
+### Quality Integration (v5.5.0)
+
+Quality now affects ALL LLM calls across the system:
+
+```python
+# ConfigurationSession - quality-aware task analysis
+session = await team.configure(task="Generate LinkedIn posts")
+session.set_quality(80)  # High quality for configuration LLM calls
+
+# TeamOrchestrator - quality-aware routing decisions
+team = LLMTeam(team_id="router", orchestration=True, quality=70)
+# Orchestrator's decide_next_agent() uses quality-appropriate model
+
+# GroupOrchestrator - quality-aware coordination
+from llmteam.orchestration import GroupOrchestrator
+group = GroupOrchestrator(group_id="multi", quality=75)
+
+# DynamicTeamBuilder - quality-aware blueprint generation
+from llmteam.builder import DynamicTeamBuilder
+builder = DynamicTeamBuilder(quality=80)
+blueprint = await builder.analyze_task("Research AI trends")
+```
+
+### Pre-flight Budget Check (v5.5.0)
+
+```python
+team = LLMTeam(
+    team_id="budget",
+    quality=90,              # High quality = higher estimated cost
+    max_cost_per_run=0.10,   # Low budget
+)
+
+# run() estimates cost BEFORE execution
+result = await team.run({"query": "..."})
+# If estimated cost > budget: fails immediately with
+# "Pre-flight budget check failed: estimated cost $X would exceed budget"
+```
+
 ## Agent Types
 
 | Type | Purpose | Key Config |
@@ -394,7 +474,8 @@ class LLMTeam:
         context_mode: ContextMode = ContextMode.SHARED,
         orchestration: bool = False,
         timeout: int = None,
-        max_cost_per_run: float = None,       # v5.3.0: Budget limit
+        quality: Union[int, str] = 50,         # v5.5.0: Quality slider 0-100 or preset
+        max_cost_per_run: float = None,        # v5.3.0: Budget limit
         enforce_lifecycle: bool = False,       # v5.3.0: Opt-in lifecycle
     ): ...
 
@@ -405,11 +486,32 @@ class LLMTeam:
     def get_agent(self, agent_id: str) -> Optional[BaseAgent]: ...
     def list_agents(self) -> List[BaseAgent]: ...
 
-    async def run(self, input_data: Dict, run_id: str = None) -> RunResult: ...
-    async def stream(self, input_data: Dict, run_id: str = None) -> AsyncIterator[StreamEvent]: ...  # v5.3.0
+    # v5.5.0: Quality-aware execution
+    async def run(
+        self,
+        input_data: Dict,
+        run_id: str = None,
+        quality: Union[int, str] = None,       # Override quality for this run
+        importance: str = None,                # "high"|"medium"|"low" adjusts quality
+    ) -> RunResult: ...
+    async def stream(
+        self,
+        input_data: Dict,
+        run_id: str = None,
+        quality: Union[int, str] = None,
+        importance: str = None,
+    ) -> AsyncIterator[StreamEvent]: ...
+    async def estimate_cost(self, complexity: str = "medium") -> CostEstimate: ...  # v5.5.0
     async def pause(self) -> TeamSnapshot: ...
     async def resume(self, snapshot: TeamSnapshot) -> RunResult: ...
     async def cancel(self) -> bool: ...
+
+    # v5.5.0: Quality management
+    @property
+    def quality(self) -> int: ...
+    @quality.setter
+    def quality(self, value: Union[int, str]) -> None: ...
+    def get_quality_manager(self) -> QualityManager: ...
 
     # v5.3.0: Lifecycle
     def mark_configuring(self) -> None: ...
