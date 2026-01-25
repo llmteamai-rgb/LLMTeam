@@ -4,10 +4,13 @@ DynamicTeamBuilder - Automatic team creation from task description.
 RFC-021: LLM analyzes a user's task, optionally asks clarifying questions,
 builds a team of agents with appropriate tools, and executes it.
 
+RFC-019: Quality integration - uses QualityManager for model selection
+and generation parameters based on quality level.
+
 Usage:
     from llmteam.builder import DynamicTeamBuilder
 
-    builder = DynamicTeamBuilder(model="gpt-4o-mini")
+    builder = DynamicTeamBuilder(quality=70)  # Production quality
     blueprint = await builder.analyze_task("Research AI trends and summarize findings")
     team = builder.build_team(blueprint)
     await builder.execute(team, {"query": "Latest LLM breakthroughs"})
@@ -18,7 +21,7 @@ import os
 import re
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from llmteam.tools.builtin import (
     web_search,
@@ -29,6 +32,10 @@ from llmteam.tools.builtin import (
 )
 from llmteam.tools import ToolDefinition
 from llmteam.builder.prompts import TASK_ANALYSIS, CLARIFYING_QUESTIONS, REFINE_BLUEPRINT
+from llmteam.quality import QualityManager, QualityAwareLLMMixin
+
+if TYPE_CHECKING:
+    from llmteam.quality import QualityManager
 
 
 class BuilderError(Exception):
@@ -176,15 +183,17 @@ def _validate_blueprint(data: Dict[str, Any]) -> TeamBlueprint:
     )
 
 
-class DynamicTeamBuilder:
+class DynamicTeamBuilder(QualityAwareLLMMixin):
     """
     Builds LLMTeam instances dynamically from task descriptions.
 
     Uses an LLM to analyze the task, design a team blueprint,
     and create a configured team with appropriate tools.
 
+    RFC-019: Quality-aware LLM calls via QualityAwareLLMMixin.
+
     Example:
-        builder = DynamicTeamBuilder(model="gpt-4o-mini")
+        builder = DynamicTeamBuilder(quality=70)
         blueprint = await builder.analyze_task("Research and summarize AI papers")
         team = builder.build_team(blueprint)
         await builder.execute(team, {"query": "transformer architectures"})
@@ -195,19 +204,42 @@ class DynamicTeamBuilder:
         model: str = "gpt-4o-mini",
         verbose: bool = True,
         provider: Optional[Any] = None,
+        quality: int = 50,
     ):
         """
         Initialize DynamicTeamBuilder.
 
         Args:
-            model: Model to use for task analysis (default: gpt-4o-mini)
+            model: Model to use for task analysis. If quality is set,
+                   this is used as fallback only.
             verbose: Print progress to stdout
             provider: Optional pre-configured LLM provider instance.
                       If None, creates OpenAIProvider from OPENAI_API_KEY.
+            quality: Quality level 0-100 (RFC-019). Controls model selection
+                     and generation parameters. Default: 50 (balanced).
         """
         self._model = model
         self._verbose = verbose
         self._provider = provider
+        self._quality = quality
+        self._quality_manager = QualityManager(quality)
+
+    # === RFC-019: QualityAwareLLMMixin implementation ===
+
+    def _get_quality_manager(self) -> "QualityManager":
+        """Get QualityManager instance."""
+        return self._quality_manager
+
+    @property
+    def quality(self) -> int:
+        """Get current quality level."""
+        return self._quality_manager.quality
+
+    @quality.setter
+    def quality(self, value: int) -> None:
+        """Set quality level."""
+        self._quality_manager.quality = value
+        self._quality = value
 
     def _get_provider(self) -> Any:
         """Get or create the LLM provider."""
@@ -221,7 +253,9 @@ class DynamicTeamBuilder:
             )
 
         from llmteam.providers import OpenAIProvider
-        self._provider = OpenAIProvider(model=self._model, api_key=api_key)
+        # RFC-019: Use quality-based model instead of hardcoded model
+        effective_model = self._quality_manager.get_model("complex")
+        self._provider = OpenAIProvider(model=effective_model, api_key=api_key)
         return self._provider
 
     def _log(self, message: str) -> None:
@@ -229,18 +263,46 @@ class DynamicTeamBuilder:
         if self._verbose:
             print(message)
 
-    async def _llm_call(self, prompt: str) -> str:
-        """Make a simple LLM completion call."""
+    async def _llm_call(self, prompt: str, complexity: str = "complex") -> str:
+        """
+        Make an LLM completion call.
+
+        RFC-019: Uses quality-aware parameters from QualityManager.
+
+        Args:
+            prompt: The prompt to send to the LLM.
+            complexity: Task complexity for model selection ("simple", "medium", "complex").
+
+        Returns:
+            LLM response string.
+        """
         provider = self._get_provider()
+        params = self._get_quality_params()
         return await provider.complete(
             prompt,
-            temperature=0.3,
-            max_tokens=2000,
+            temperature=params.get("temperature", 0.5),
+            max_tokens=params.get("max_tokens", 2000),
         )
+
+    def _get_quality_label(self) -> str:
+        """Get human-readable quality label."""
+        q = self.quality
+        if q >= 85:
+            return "Excellent (best quality, thorough analysis)"
+        elif q >= 70:
+            return "Good (production quality)"
+        elif q >= 50:
+            return "Balanced (good for most tasks)"
+        elif q >= 30:
+            return "Economy (fast, basic output)"
+        else:
+            return "Draft (minimal, quick iteration)"
 
     async def analyze_task(self, task_description: str) -> TeamBlueprint:
         """
         Analyze a task description and generate a TeamBlueprint.
+
+        RFC-019: Includes quality context in the analysis prompt.
 
         Args:
             task_description: Natural language description of the task.
@@ -252,10 +314,24 @@ class DynamicTeamBuilder:
             BuilderParseError: If LLM returns invalid JSON.
             BuilderValidationError: If blueprint fails validation.
         """
-        self._log("Analyzing task...")
+        self._log(f"Analyzing task (quality={self.quality})...")
 
-        prompt = TASK_ANALYSIS.format(task_description=task_description)
-        raw = await self._llm_call(prompt)
+        # RFC-019: Get quality-based constraints
+        manager = self._quality_manager
+        min_agents, max_agents = manager.get_agent_count_range()
+        pipeline_depth = manager.get_pipeline_depth()
+        recommended_model = manager.get_model("medium")
+
+        prompt = TASK_ANALYSIS.format(
+            task_description=task_description,
+            quality=self.quality,
+            quality_label=self._get_quality_label(),
+            pipeline_depth=pipeline_depth.value,
+            min_agents=min_agents,
+            max_agents=max_agents,
+            recommended_model=recommended_model,
+        )
+        raw = await self._llm_call(prompt, complexity="complex")
         data = _parse_blueprint_json(raw)
         blueprint = _validate_blueprint(data)
 
@@ -295,6 +371,8 @@ class DynamicTeamBuilder:
         """
         Refine an existing blueprint based on user feedback.
 
+        RFC-019: Includes quality context in the refinement prompt.
+
         Args:
             blueprint: Current TeamBlueprint to modify.
             feedback: User's feedback/modification request.
@@ -302,7 +380,7 @@ class DynamicTeamBuilder:
         Returns:
             Updated TeamBlueprint.
         """
-        self._log("Refining blueprint...")
+        self._log(f"Refining blueprint (quality={self.quality})...")
 
         blueprint_dict = {
             "team_id": blueprint.team_id,
@@ -323,11 +401,21 @@ class DynamicTeamBuilder:
             "input_variables": blueprint.input_variables,
         }
 
+        # RFC-019: Get quality-based constraints
+        manager = self._quality_manager
+        min_agents, max_agents = manager.get_agent_count_range()
+        recommended_model = manager.get_model("medium")
+
         prompt = REFINE_BLUEPRINT.format(
             blueprint_json=json.dumps(blueprint_dict, indent=2),
             feedback=feedback,
+            quality=self.quality,
+            quality_label=self._get_quality_label(),
+            min_agents=min_agents,
+            max_agents=max_agents,
+            recommended_model=recommended_model,
         )
-        raw = await self._llm_call(prompt)
+        raw = await self._llm_call(prompt, complexity="complex")
         data = _parse_blueprint_json(raw)
         refined = _validate_blueprint(data)
 
@@ -337,6 +425,8 @@ class DynamicTeamBuilder:
     def build_team(self, blueprint: TeamBlueprint) -> Any:
         """
         Build an LLMTeam instance from a TeamBlueprint.
+
+        RFC-019: Passes quality to the created team.
 
         Args:
             blueprint: Validated TeamBlueprint.
@@ -352,11 +442,13 @@ class DynamicTeamBuilder:
         if not blueprint.agents:
             raise BuilderValidationError("Cannot build team with no agents")
 
-        self._log(f"\nBuilding team '{blueprint.team_id}'...")
+        self._log(f"\nBuilding team '{blueprint.team_id}' (quality={self.quality})...")
 
+        # RFC-019: Pass quality to the team
         team = LLMTeam(
             team_id=blueprint.team_id,
             orchestration=True,  # ROUTER mode for dynamic routing
+            quality=self.quality,  # RFC-019: Quality integration
         )
 
         for agent_bp in blueprint.agents:
@@ -376,7 +468,7 @@ class DynamicTeamBuilder:
 
             team.add_agent(config)
 
-        self._log(f"Team built: {len(blueprint.agents)} agents ready")
+        self._log(f"Team built: {len(blueprint.agents)} agents ready (quality={self.quality})")
         return team
 
     async def execute(self, team: Any, input_data: Dict[str, Any]) -> None:
