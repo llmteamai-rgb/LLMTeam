@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmteam-ai"
-version = "5.4.0"
+version = "5.5.0"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
 license = "Apache-2.0"

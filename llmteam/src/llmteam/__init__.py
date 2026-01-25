@@ -4,12 +4,21 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 5.5.0 (RFC-019: Quality Integration)
+    - New: QualityAwareLLMMixin for quality-aware LLM calls
+    - New: Quality integration in ConfigurationSession, TeamOrchestrator, GroupOrchestrator
+    - New: Quality-aware prompts with quality context
+    - New: Budget pre-check with quality-based cost estimation
+    - New: Cost tracking for quality LLM calls
+    - New: Deduplicated router logic via router_loop() generator
+    - New: DynamicTeamBuilder quality integration
+
 Version: 5.4.0 (RFC-015/016/017/018/019/020: Agentic Execution)
     - New: RFC-015 Provider complete_with_tools(), LLMResponse, ToolCall, ToolMessage
     - New: RFC-016 LLMAgent tool execution loop (max_tool_rounds)
     - New: RFC-017 Agent-level TOOL_CALL/TOOL_RESULT/AGENT_THINKING stream events
     - New: RFC-018 Built-in tools library (web_search, http_fetch, json_extract, etc.)
-    - New: RFC-019 PeriodBudgetManager for hour/day/month budgets
+    - New: RFC-019-budget PeriodBudgetManager for hour/day/month budgets
     - New: RFC-020 Retry-After support from LLM providers
 
 Version: 5.3.0 (RFC-010/011/012/013/014: Enterprise Features)
@@ -70,7 +79,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.4.0"
+__version__ = "5.5.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
