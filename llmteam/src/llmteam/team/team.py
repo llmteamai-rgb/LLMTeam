@@ -397,6 +397,20 @@ class LLMTeam:
         elif importance is not None:
             effective_quality = self._quality_manager.with_importance(importance)
 
+        # RFC-019: Pre-flight budget check with quality-based cost estimate
+        if self._budget_manager and self._budget_manager._budget:
+            q_manager = QualityManager(effective_quality)
+            estimated_min, estimated_max = q_manager.estimate_cost("medium")
+            current_cost = self._cost_tracker.current_cost if self._cost_tracker else 0
+            budget_limit = self._budget_manager._budget.max_cost
+
+            if current_cost + estimated_min > budget_limit:
+                return RunResult(
+                    success=False,
+                    status=RunStatus.FAILED,
+                    error=f"Pre-flight budget check failed: estimated cost ${estimated_min:.4f} would exceed budget limit ${budget_limit:.4f} (current: ${current_cost:.4f})",
+                )
+
         if not self._agents:
             return RunResult(
                 success=False,

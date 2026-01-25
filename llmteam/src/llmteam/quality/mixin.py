@@ -154,6 +154,8 @@ class QualityAwareLLMMixin:
 
         Convenience method combining _get_quality_llm() and _get_quality_params().
 
+        RFC-019: Also tracks cost if team has cost tracker.
+
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
@@ -178,7 +180,57 @@ class QualityAwareLLMMixin:
 
         response = await llm.complete(prompt=prompt, **kwargs)
 
+        # RFC-019: Track cost if team has cost tracker
+        self._track_quality_call_cost(response, prompt)
+
         # Extract text from response
         if isinstance(response, str):
             return response
         return getattr(response, "text", getattr(response, "content", str(response)))
+
+    def _track_quality_call_cost(self, response: Any, prompt: str) -> None:
+        """
+        Track cost of quality LLM call (RFC-019).
+
+        Args:
+            response: LLM response (may contain token info)
+            prompt: Original prompt (for estimating input tokens)
+        """
+        team = getattr(self, "_team", None)
+        if not team:
+            return
+
+        cost_tracker = getattr(team, "_cost_tracker", None)
+        if not cost_tracker:
+            return
+
+        # Try to get token count from response
+        tokens_used = 0
+        if hasattr(response, "usage"):
+            usage = response.usage
+            tokens_used = getattr(usage, "total_tokens", 0)
+        elif hasattr(response, "tokens_used"):
+            tokens_used = response.tokens_used
+        elif not isinstance(response, str):
+            tokens_used = getattr(response, "total_tokens", 0)
+
+        # If no token info, estimate from prompt length
+        if tokens_used == 0:
+            # Rough estimate: ~4 chars per token
+            tokens_used = len(prompt) // 4 + 100  # +100 for response
+
+        if tokens_used > 0 and self._quality_llm_model:
+            try:
+                # Estimate input/output split (60/40 heuristic)
+                input_tokens = int(tokens_used * 0.6)
+                output_tokens = tokens_used - input_tokens
+
+                cost_tracker.add_usage(
+                    model=self._quality_llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    source="quality_orchestrator",
+                )
+            except Exception:
+                # Don't fail if cost tracking fails
+                pass
