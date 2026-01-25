@@ -3,6 +3,7 @@ GroupOrchestrator for multi-team coordination.
 
 RFC-004: Separate class for coordinating multiple LLMTeams.
 RFC-009: Group Architecture Unification with bi-directional context.
+RFC-019: Quality integration via QualityAwareLLMMixin.
 """
 
 import asyncio
@@ -20,6 +21,7 @@ from llmteam.orchestration.models import (
     EscalationResponse,
     GroupEscalationAction,
 )
+from llmteam.quality import QualityManager, QualityAwareLLMMixin
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
@@ -114,12 +116,13 @@ class GroupRole(Enum):
     """
 
 
-class GroupOrchestrator:
+class GroupOrchestrator(QualityAwareLLMMixin):
     """
     Orchestrator for a group of teams.
 
     RFC-004: Coordinates multiple LLMTeams and collects reports.
     RFC-009: Unified group coordination with bi-directional context.
+    RFC-019: Quality-aware LLM calls via QualityAwareLLMMixin.
 
     Roles:
     - REPORT_COLLECTOR: Passive report collection (default)
@@ -132,6 +135,7 @@ class GroupOrchestrator:
         orch = GroupOrchestrator(
             group_id="my_group",
             role=GroupRole.COORDINATOR,
+            quality=70,
         )
         orch.add_team(team1, role=TeamRole.LEADER)
         orch.add_team(team2, role=TeamRole.MEMBER)
@@ -146,6 +150,7 @@ class GroupOrchestrator:
         model: str = "gpt-4o-mini",
         max_iterations: int = 10,
         max_escalation_depth: int = 3,
+        quality: int = 50,
     ):
         """
         Initialize GroupOrchestrator.
@@ -153,15 +158,20 @@ class GroupOrchestrator:
         Args:
             group_id: Unique group identifier (auto-generated if None).
             role: Orchestrator role (default: REPORT_COLLECTOR).
-            model: LLM model for roles requiring it (ROUTER, ARBITER).
+            model: LLM model (deprecated, use quality instead).
             max_iterations: Max routing iterations (for ROUTER).
             max_escalation_depth: Max escalation depth to prevent loops.
+            quality: Quality level 0-100 (RFC-019). Default: 50.
         """
         self.group_id = group_id or f"group_{uuid.uuid4().hex[:8]}"
         self._role = role
-        self._model = model
+        self._model = model  # Deprecated: use quality instead
         self._max_iterations = max_iterations
         self._max_escalation_depth = max_escalation_depth
+
+        # RFC-019: Quality management
+        self._quality = quality
+        self._quality_manager = QualityManager(quality)
 
         # Teams (RFC-009: with roles)
         self._teams: Dict[str, "LLMTeam"] = {}
@@ -174,8 +184,25 @@ class GroupOrchestrator:
         self._escalation_count: int = 0
         self._current_run_id: Optional[str] = None
 
-        # LLM (lazy init)
+        # LLM (lazy init) - RFC-019: Now uses quality-aware model
         self._llm = None
+
+    # === RFC-019: QualityAwareLLMMixin implementation ===
+
+    def _get_quality_manager(self) -> QualityManager:
+        """Get QualityManager instance."""
+        return self._quality_manager
+
+    @property
+    def quality(self) -> int:
+        """Get current quality level."""
+        return self._quality_manager.quality
+
+    @quality.setter
+    def quality(self, value: int) -> None:
+        """Set quality level."""
+        self._quality_manager.quality = value
+        self._quality = value
 
     # === Team Management (RFC-009: with roles) ===
 
@@ -604,28 +631,26 @@ class GroupOrchestrator:
         self,
         request: EscalationRequest,
     ) -> EscalationResponse:
-        """LLM-based escalation decision."""
-        llm = self._get_llm()
-        if not llm:
-            return EscalationResponse(
-                action=GroupEscalationAction.ABORT,
-                reason="No LLM available for escalation decision",
-            )
+        """
+        LLM-based escalation decision.
 
+        RFC-019: Uses quality-aware LLM via _quality_complete().
+        """
         prompt = self._build_escalation_prompt(request)
 
         try:
-            response = await llm.complete(
+            response = await self._quality_complete(
                 prompt=prompt,
                 system_prompt="You are a group orchestrator handling an escalation. Decide the best action.",
-                temperature=0.1,
-                max_tokens=200,
+                complexity="simple",
+                override_temperature=0.1,
+                override_max_tokens=200,
             )
             return self._parse_escalation_response(response)
         except Exception:
             return EscalationResponse(
                 action=GroupEscalationAction.ABORT,
-                reason="LLM call failed",
+                reason="LLM error during escalation decision",
             )
 
     async def route_to_team(
@@ -806,26 +831,27 @@ class GroupOrchestrator:
         current_data: Dict[str, Any],
         teams_called: List[str],
     ) -> Optional[str]:
-        """LLM decision for ROUTER role."""
-        llm = self._get_llm()
-        if not llm:
+        """
+        LLM decision for ROUTER role.
+
+        RFC-019: Uses quality-aware LLM via _quality_complete().
+        """
+        prompt = self._build_routing_prompt(current_data, teams_called)
+
+        try:
+            response = await self._quality_complete(
+                prompt=prompt,
+                system_prompt="You are a router deciding which team should handle the task.",
+                complexity="simple",
+                override_temperature=0.1,
+                override_max_tokens=100,
+            )
+            return self._parse_routing_response(response)
+        except Exception:
             # Fallback: round-robin
             for team_id in self._teams:
                 if team_id not in teams_called:
                     return team_id
-            return None
-
-        prompt = self._build_routing_prompt(current_data, teams_called)
-
-        try:
-            response = await llm.complete(
-                prompt=prompt,
-                system_prompt="You are a router deciding which team should handle the task.",
-                temperature=0.1,
-                max_tokens=100,
-            )
-            return self._parse_routing_response(response)
-        except Exception:
             return self._leader_id
 
     async def _should_continue_routing(
@@ -850,38 +876,47 @@ class GroupOrchestrator:
         self,
         team_results: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Arbitrate between conflicting results."""
-        llm = self._get_llm()
-        if not llm:
+        """
+        Arbitrate between conflicting results.
+
+        RFC-019: Uses quality-aware LLM via _quality_complete().
+        """
+        prompt = self._build_arbitration_prompt(team_results)
+
+        try:
+            response = await self._quality_complete(
+                prompt=prompt,
+                system_prompt="You are an arbiter choosing the best result.",
+                complexity="medium",  # Arbitration is more complex
+                override_temperature=0.1,
+                override_max_tokens=500,
+            )
+            return self._parse_arbitration_response(response, team_results)
+        except Exception:
             # Fallback: use leader's result
             if self._leader_id and self._leader_id in team_results:
                 result = team_results[self._leader_id]
                 return result.output if hasattr(result, "output") else {}
             return self._merge_outputs(team_results)
 
-        prompt = self._build_arbitration_prompt(team_results)
-
-        try:
-            response = await llm.complete(
-                prompt=prompt,
-                system_prompt="You are an arbiter choosing the best result.",
-                temperature=0.1,
-                max_tokens=500,
-            )
-            return self._parse_arbitration_response(response, team_results)
-        except Exception:
-            return self._merge_outputs(team_results)
-
     def _get_llm(self):
-        """Get or create LLM provider."""
+        """
+        Get or create LLM provider.
+
+        RFC-019: Now uses quality-based model from QualityManager.
+        Deprecated: Use _quality_complete() or _get_quality_llm() instead.
+        """
         if self._llm is not None:
             return self._llm
 
         try:
             from llmteam.providers import OpenAIProvider
-            self._llm = OpenAIProvider(model=self._model)
+
+            # RFC-019: Use quality-based model
+            model = self._quality_manager.get_model("simple")
+            self._llm = OpenAIProvider(model=model)
             return self._llm
-        except ImportError:
+        except (ImportError, Exception):
             return None
 
     # === Prompt Builders ===
