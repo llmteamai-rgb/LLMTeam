@@ -360,7 +360,8 @@ class TestTeamOrchestratorRouting:
 
         # Should fallback to first agent
         assert decision.next_agent == "writer"
-        assert "no llm" in decision.reason.lower()
+        # RFC-019: Now uses _quality_complete() which returns "LLM error" on failure
+        assert "llm" in decision.reason.lower() and ("error" in decision.reason.lower() or "no" in decision.reason.lower())
 
 
 class TestTeamOrchestratorRecovery:

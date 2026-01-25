@@ -2,6 +2,8 @@
 TeamOrchestrator - Supervisor for agent teams.
 
 NOT an agent. Separate entity that oversees agent execution.
+
+RFC-019: Quality integration via QualityAwareLLMMixin.
 """
 
 from dataclasses import dataclass, field
@@ -11,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import json
 
 from llmteam.agents.report import AgentReport
+from llmteam.quality import QualityManager, QualityAwareLLMMixin
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
@@ -55,10 +58,15 @@ class RecoveryAction(Enum):
 
 @dataclass
 class OrchestratorConfig:
-    """Configuration for TeamOrchestrator."""
+    """
+    Configuration for TeamOrchestrator.
+
+    RFC-019: model field is deprecated. Model is now determined by
+    team's quality setting via QualityManager.
+    """
 
     mode: OrchestratorMode = OrchestratorMode.PASSIVE
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini"  # Deprecated: use team quality instead
 
     # Recovery settings
     auto_retry: bool = True
@@ -92,12 +100,14 @@ class RecoveryDecision:
     fallback_agent: Optional[str] = None
 
 
-class TeamOrchestrator:
+class TeamOrchestrator(QualityAwareLLMMixin):
     """
     Supervisor for agent team execution.
 
     NOT an agent. Does not inherit BaseAgent.
     Contains an internal LLM for decision-making.
+
+    RFC-019: Quality-aware LLM calls via QualityAwareLLMMixin.
 
     Responsibilities:
     - SUPERVISOR: Receive reports from agents
@@ -127,11 +137,17 @@ class TeamOrchestrator:
         self._reports: List[AgentReport] = []
         self._started_at: Optional[datetime] = None
 
-        # LLM provider (lazy init)
+        # LLM provider (lazy init) - RFC-019: Now uses quality-aware model
         self._llm = None
 
         # RFC-009: Group context
         self._group_context: Optional["GroupContext"] = None
+
+    # === RFC-019: QualityAwareLLMMixin implementation ===
+
+    def _get_quality_manager(self) -> QualityManager:
+        """Get QualityManager from team."""
+        return self._team._quality_manager
 
     # Properties
 
@@ -243,6 +259,8 @@ class TeamOrchestrator:
         """
         Decide which agent should run next.
 
+        RFC-019: Uses quality-aware LLM via _quality_complete().
+
         Args:
             current_state: Current execution state
             available_agents: List of available agent IDs
@@ -257,14 +275,6 @@ class TeamOrchestrator:
                 reason="Router mode not enabled, using sequential",
             )
 
-        # Use LLM to decide
-        llm = self._get_llm()
-        if not llm:
-            return RoutingDecision(
-                next_agent=available_agents[0] if available_agents else "",
-                reason="No LLM available, using first agent",
-            )
-
         # Build prompt
         from llmteam.agents.prompts import build_routing_prompt
 
@@ -275,16 +285,23 @@ class TeamOrchestrator:
             execution_history=self._reports,
         )
 
-        # Call LLM
-        response = await llm.complete(
-            prompt=prompt,
-            system_prompt="You are a team orchestrator. Choose the most appropriate agent for the current task.",
-            temperature=0.1,
-            max_tokens=200,
-        )
-
-        # Parse response
-        return self._parse_routing_response(response, available_agents)
+        # RFC-019: Use quality-aware LLM call
+        # Routing is "simple" complexity - quick decisions
+        try:
+            response = await self._quality_complete(
+                prompt=prompt,
+                system_prompt="You are a team orchestrator. Choose the most appropriate agent for the current task.",
+                complexity="simple",
+                override_temperature=0.1,  # Low temp for deterministic routing
+                override_max_tokens=200,
+            )
+            return self._parse_routing_response(response, available_agents)
+        except Exception:
+            # Fallback if LLM fails
+            return RoutingDecision(
+                next_agent=available_agents[0] if available_agents else "",
+                reason="LLM error, using first agent",
+            )
 
     # Recovery (RECOVERY mode)
 
@@ -296,6 +313,8 @@ class TeamOrchestrator:
     ) -> RecoveryDecision:
         """
         Decide how to recover from error.
+
+        RFC-019: Uses quality-aware LLM via _quality_complete().
 
         Args:
             error: The exception that occurred
@@ -317,14 +336,6 @@ class TeamOrchestrator:
                 reason="Recovery mode not enabled",
             )
 
-        # Use LLM to decide
-        llm = self._get_llm()
-        if not llm:
-            return RecoveryDecision(
-                action=RecoveryAction.ABORT,
-                reason="No LLM available for recovery decision",
-            )
-
         # Build prompt
         from llmteam.agents.prompts import build_recovery_prompt
 
@@ -335,16 +346,22 @@ class TeamOrchestrator:
             team=self._team,
         )
 
-        # Call LLM
-        response = await llm.complete(
-            prompt=prompt,
-            system_prompt="You are a team orchestrator handling an error. Decide the best recovery action.",
-            temperature=0.1,
-            max_tokens=200,
-        )
-
-        # Parse response
-        return self._parse_recovery_response(response)
+        # RFC-019: Use quality-aware LLM call
+        try:
+            response = await self._quality_complete(
+                prompt=prompt,
+                system_prompt="You are a team orchestrator handling an error. Decide the best recovery action.",
+                complexity="simple",
+                override_temperature=0.1,
+                override_max_tokens=200,
+            )
+            return self._parse_recovery_response(response)
+        except Exception:
+            # Fallback if LLM fails
+            return RecoveryDecision(
+                action=RecoveryAction.ABORT,
+                reason="LLM error during recovery decision",
+            )
 
     # Group scope
 
@@ -396,16 +413,24 @@ class TeamOrchestrator:
     # Internal methods
 
     def _get_llm(self):
-        """Get or create LLM provider."""
+        """
+        Get or create LLM provider.
+
+        RFC-019: Now uses quality-based model from QualityManager.
+        Deprecated: Use _quality_complete() or _get_quality_llm() instead.
+        """
         if self._llm is not None:
             return self._llm
 
         try:
             from llmteam.providers import OpenAIProvider
 
-            self._llm = OpenAIProvider(model=self._config.model)
+            # RFC-019: Use quality-based model instead of config.model
+            manager = self._get_quality_manager()
+            model = manager.get_model("simple")  # Routing/recovery are simple tasks
+            self._llm = OpenAIProvider(model=model)
             return self._llm
-        except ImportError:
+        except (ImportError, Exception):
             return None
 
     def _generate_markdown_report(self) -> str:
