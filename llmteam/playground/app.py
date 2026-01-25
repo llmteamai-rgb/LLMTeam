@@ -183,29 +183,142 @@ def render_sidebar():
 # === Agent Builder ===
 def render_agent_builder():
     """Render agent builder section."""
-    st.header("🤖 Agent Builder")
+    st.header("🤖 Team Builder")
+
+    # Mode selection
+    build_mode = st.radio(
+        "Способ создания команды",
+        options=["🤖 Автоматический (Конфигуратор)", "✋ Ручной"],
+        index=0,
+        horizontal=True,
+        help="Конфигуратор анализирует задачу и создаёт оптимальную команду агентов",
+    )
+
+    if build_mode == "🤖 Автоматический (Конфигуратор)":
+        render_configurator_mode()
+    else:
+        render_manual_mode()
+
+
+def render_configurator_mode():
+    """Render configurator-based team builder."""
+    st.subheader("🧠 Конфигуратор команды")
+    st.markdown("Опишите задачу, и AI создаст оптимальную команду агентов.")
+
+    # Check API key
+    if not st.session_state.api_key:
+        st.warning("⚠️ Введите OpenAI API Key в боковой панели")
+        return
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        task_description = st.text_area(
+            "Опишите вашу задачу",
+            placeholder="Например: Создать команду для анализа новостей, извлечения ключевых фактов и написания краткого отчёта",
+            height=120,
+            key="task_description",
+        )
+
+        constraints = st.text_input(
+            "Ограничения (опционально)",
+            placeholder="Например: максимум 3 агента, использовать gpt-4o-mini",
+            key="constraints",
+        )
+
+    with col2:
+        st.markdown("**Примеры задач:**")
+        st.markdown("""
+        - Исследование темы и написание статьи
+        - Анализ данных и визуализация
+        - Перевод и локализация контента
+        - Код-ревью и рефакторинг
+        - Генерация маркетинговых текстов
+        """)
+
+    if st.button("🚀 Создать команду", type="primary", use_container_width=True):
+        if not task_description:
+            st.error("Опишите задачу")
+            return
+
+        with st.spinner("Анализирую задачу и создаю команду..."):
+            asyncio.run(run_configurator(task_description, constraints))
+
+    # Show current team
+    st.divider()
+    render_current_agents()
+
+
+async def run_configurator(task: str, constraints: str = ""):
+    """Run configurator to create team."""
+    try:
+        from llmteam.builder import DynamicTeamBuilder
+
+        builder = DynamicTeamBuilder(
+            model="gpt-4o-mini",
+            quality=st.session_state.get("quality", 50),
+        )
+
+        # Add constraints to task if provided
+        full_task = task
+        if constraints:
+            full_task = f"{task}\n\nОграничения: {constraints}"
+
+        # Analyze task and get blueprint
+        blueprint = await builder.analyze_task(full_task)
+
+        # Convert blueprint agents to our format
+        new_agents = []
+        for agent in blueprint.agents:
+            agent_config = {
+                "type": "llm",
+                "role": agent.role,
+                "prompt": agent.prompt,
+                "model": agent.model,
+                "temperature": agent.temperature,
+                "max_tokens": 1000,
+            }
+            new_agents.append(agent_config)
+
+        st.session_state.agents = new_agents
+        st.success(f"✅ Создана команда из {len(new_agents)} агентов!")
+
+        # Show blueprint info
+        st.info(f"**{blueprint.team_id}**: {blueprint.description}")
+
+        st.rerun()
+
+    except ImportError:
+        st.error("DynamicTeamBuilder не доступен. Используйте ручной режим.")
+    except Exception as e:
+        st.error(f"Ошибка: {e}")
+
+
+def render_manual_mode():
+    """Render manual agent builder."""
+    st.subheader("✋ Ручное создание агентов")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Add New Agent")
+        st.markdown("**Добавить агента**")
 
         agent_type = st.selectbox(
-            "Agent Type",
+            "Тип агента",
             options=["llm", "rag", "kag"],
             index=0,
         )
 
-        role = st.text_input("Role", placeholder="e.g., researcher, writer, reviewer")
+        role = st.text_input("Роль", placeholder="например: researcher, writer, reviewer")
 
         prompt = st.text_area(
-            "System Prompt",
-            placeholder="You are a helpful assistant. Your task is to {task}...",
+            "Промпт",
+            placeholder="Ты помощник, который выполняет задачу: {task}...",
             height=150,
         )
 
         model = st.selectbox(
-            "Model",
+            "Модель",
             options=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
             index=0,
         )
@@ -225,9 +338,6 @@ def render_agent_builder():
             value=1000,
             step=100,
         )
-
-        # Tools selection (informational - tools require ToolDefinition objects)
-        st.info("💡 Tools require ToolDefinition objects. Use code to add tools to agents.")
 
         if st.button("➕ Add Agent", type="primary"):
             if not role:
@@ -250,20 +360,32 @@ def render_agent_builder():
                 st.rerun()
 
     with col2:
-        st.subheader("Current Agents")
+        render_current_agents()
 
-        if not st.session_state.agents:
-            st.info("No agents yet. Add one using the form.")
-        else:
-            for i, agent in enumerate(st.session_state.agents):
-                with st.expander(f"**{agent['role']}** ({agent['type']})", expanded=False):
-                    st.code(json.dumps(agent, indent=2), language="json")
 
-                    col_edit, col_del = st.columns(2)
-                    with col_del:
-                        if st.button(f"🗑️ Delete", key=f"del_{i}"):
-                            st.session_state.agents.pop(i)
-                            st.rerun()
+def render_current_agents():
+    """Render current agents list."""
+    st.subheader("📋 Текущая команда")
+
+    if not st.session_state.agents:
+        st.info("Команда пуста. Создайте агентов.")
+        return
+
+    for i, agent in enumerate(st.session_state.agents):
+        with st.expander(f"**{agent['role']}** ({agent['type']})", expanded=False):
+            st.code(json.dumps(agent, indent=2, ensure_ascii=False), language="json")
+
+            col_edit, col_del = st.columns(2)
+            with col_del:
+                if st.button(f"🗑️ Удалить", key=f"del_{i}"):
+                    st.session_state.agents.pop(i)
+                    st.rerun()
+
+    # Clear all button
+    if len(st.session_state.agents) > 1:
+        if st.button("🗑️ Очистить всё", type="secondary"):
+            st.session_state.agents = []
+            st.rerun()
 
 
 # === Team Runner ===
