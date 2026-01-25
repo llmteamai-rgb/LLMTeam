@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 5.4.0 (RFC-015/016/017/018/019/020/021: Agentic Execution)
+- **Current version:** 5.5.0 (RFC-019: Quality Integration)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -125,8 +125,9 @@ AgentReport                    — Automatic reporting to orchestrator
 | `registry/` | BaseRegistry[T], AgentRegistry, TeamRegistry |
 | `escalation/` | EscalationLevel, handlers (Default, Threshold, Chain) |
 | `mining/` | ProcessMiningEngine, ProcessEvent, ProcessMetrics |
-| `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator (RFC-008) |
+| `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator, **QualityAwareLLMMixin** (RFC-008/019) |
 | `builder/` | **DynamicTeamBuilder**, TeamBlueprint, AgentBlueprint, TOOL_MAP (RFC-021) |
+| `team/router.py` | **router_loop()** generator, RouterEvent, RouterEventType (RFC-019) |
 
 **Canvas & Runtime:**
 | Module | Purpose |
@@ -308,7 +309,7 @@ decision = handler.handle(Escalation(
 ))
 ```
 
-**Quality Slider Pattern (RFC-008):** Control quality/cost tradeoff with single 0-100 parameter:
+**Quality Slider Pattern (RFC-008/019):** Control quality/cost tradeoff with single 0-100 parameter:
 ```python
 from llmteam import LLMTeam, QualityManager
 from llmteam.quality import QualityPreset, CostEstimator
@@ -345,6 +346,77 @@ depth = manager.get_pipeline_depth()  # SHALLOW | MEDIUM | DEEP
 manager = QualityManager(quality="auto")
 manager.set_daily_budget(10.0)
 manager.record_spend(5.0)  # Tracks spending, adjusts quality
+```
+
+**QualityAwareLLMMixin Pattern (RFC-019):** Quality-aware LLM calls for components:
+```python
+from llmteam.quality import QualityManager, QualityAwareLLMMixin
+
+class MyComponent(QualityAwareLLMMixin):
+    """Custom component with quality-aware LLM access."""
+
+    def __init__(self, team):
+        self._team = team
+
+    def _get_quality_manager(self) -> QualityManager:
+        """Required: return QualityManager instance."""
+        return self._team._quality_manager
+
+    async def do_something(self):
+        # Get quality-appropriate LLM
+        llm = self._get_quality_llm(complexity="medium")
+
+        # Get quality-based params
+        params = self._get_quality_params()
+
+        # Or use convenience method
+        response = await self._quality_complete(
+            prompt="Your prompt here",
+            system_prompt="System instructions",
+            complexity="simple",  # simple | medium | complex
+        )
+        return response
+
+# Components using mixin (v5.5.0):
+# - ConfigurationSession: quality-aware task analysis and team suggestion
+# - TeamOrchestrator: quality-aware routing and recovery decisions
+# - GroupOrchestrator: quality-aware group coordination
+# - DynamicTeamBuilder: quality-aware blueprint generation
+```
+
+**Router Loop Pattern (RFC-019):** Shared router iteration logic:
+```python
+from llmteam.team.router import router_loop, RouterEventType, RouterEvent
+
+# router_loop() is used internally by _run_router_mode() and stream()
+# It's an async generator that yields RouterEvent objects
+
+# Event types:
+# - AGENT_SELECTED: Orchestrator chose an agent
+# - AGENT_STARTED: Agent execution beginning
+# - AGENT_COMPLETED: Agent finished successfully
+# - AGENT_FAILED: Agent execution failed
+# - TOOL_CALL: Agent called a tool (RFC-017)
+# - TOOL_RESULT: Tool returned result
+# - COST_UPDATE: Token usage recorded
+# - BUDGET_EXCEEDED: Budget limit hit
+# - LOOP_DONE: Final state with all outputs
+
+# Custom usage (advanced):
+async for event in router_loop(
+    agents=team._agents,
+    orchestrator=team._orchestrator,
+    input_data={"query": "..."},
+    run_id="run-123",
+    effective_quality=70,
+    cost_tracker=team._cost_tracker,
+    budget_manager=team._budget_manager,
+    collect_tool_events=True,
+):
+    if event.type == RouterEventType.AGENT_COMPLETED:
+        print(f"Agent {event.agent_id} completed")
+    elif event.type == RouterEventType.LOOP_DONE:
+        print(f"Final output: {event.data['final_output']}")
 ```
 
 **Store Pattern:** All stores use dependency injection:
@@ -434,6 +506,53 @@ blueprint = TeamBlueprint(
 2. **Vertical Visibility** — Orchestrators see only their child agents
 3. **Sealed Data** — Only the owner agent can access sealed fields
 4. **Tenant Isolation** — Complete data separation between tenants
+
+## Migration from v5.4.0 to v5.5.0
+
+```python
+# v5.4.0 (still works)
+team = LLMTeam(team_id="support", agents=[...], quality=70)
+result = await team.run(data)
+
+# v5.5.0 (RFC-019: Quality Integration)
+# Quality now affects ALL LLM calls, not just agent execution:
+# - ConfigurationSession uses quality for task analysis
+# - TeamOrchestrator uses quality for routing decisions
+# - GroupOrchestrator uses quality for coordination
+# - DynamicTeamBuilder uses quality for blueprint generation
+
+# Pre-flight budget check (new in v5.5.0)
+team = LLMTeam(
+    team_id="support",
+    agents=[...],
+    quality=90,  # High quality = higher estimated cost
+    max_cost_per_run=0.50,  # Budget limit
+)
+# run() now estimates cost BEFORE execution and fails early if over budget
+result = await team.run(data)  # May fail with "Pre-flight budget check failed"
+
+# QualityAwareLLMMixin for custom components (new in v5.5.0)
+from llmteam.quality import QualityAwareLLMMixin
+
+class MyComponent(QualityAwareLLMMixin):
+    def _get_quality_manager(self):
+        return self._team._quality_manager
+
+    async def analyze(self):
+        # Uses quality-appropriate model and params
+        return await self._quality_complete(
+            prompt="...",
+            complexity="medium",
+        )
+
+# Key additions in v5.5.0:
+# - QualityAwareLLMMixin for quality-aware LLM access
+# - Pre-flight budget check in team.run()
+# - Cost tracking for orchestrator LLM calls
+# - Quality-aware prompts with quality context
+# - router_loop() generator (internal refactoring)
+# - DynamicTeamBuilder quality parameter
+```
 
 ## Migration from v5.0.0 to v5.1.0
 
