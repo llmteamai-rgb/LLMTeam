@@ -9,10 +9,38 @@ import json
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Add src to path for development
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+# Config file for persistent settings
+CONFIG_FILE = Path(__file__).parent / ".playground_config.json"
+
+
+def load_config() -> dict:
+    """Load config from file."""
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_config(config: dict) -> None:
+    """Save config to file."""
+    try:
+        CONFIG_FILE.write_text(json.dumps(config, indent=2))
+    except Exception:
+        pass
+
+
+def get_saved_api_key() -> str:
+    """Get API key from config or environment."""
+    config = load_config()
+    return config.get("api_key", "") or os.environ.get("OPENAI_API_KEY", "")
 
 try:
     import streamlit as st
@@ -45,7 +73,10 @@ def init_session_state():
     if "run_history" not in st.session_state:
         st.session_state.run_history = []
     if "api_key" not in st.session_state:
-        st.session_state.api_key = os.environ.get("OPENAI_API_KEY", "")
+        st.session_state.api_key = get_saved_api_key()
+    # Always set env var from session state
+    if st.session_state.api_key:
+        os.environ["OPENAI_API_KEY"] = st.session_state.api_key
 
 
 init_session_state()
@@ -66,6 +97,10 @@ def render_sidebar():
     if api_key != st.session_state.api_key:
         st.session_state.api_key = api_key
         os.environ["OPENAI_API_KEY"] = api_key
+        # Save to config file for persistence
+        config = load_config()
+        config["api_key"] = api_key
+        save_config(config)
 
     st.sidebar.divider()
 
