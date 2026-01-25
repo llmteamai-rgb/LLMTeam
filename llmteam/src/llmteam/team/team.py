@@ -482,6 +482,8 @@ class LLMTeam:
         self,
         input_data: Dict[str, Any],
         run_id: Optional[str] = None,
+        quality: Optional[Union[int, str]] = None,
+        importance: Optional[str] = None,
     ) -> AsyncIterator["StreamEvent"]:
         """
         Execute team with streaming events (RFC-011).
@@ -492,6 +494,8 @@ class LLMTeam:
         Args:
             input_data: Input data for execution
             run_id: Optional run identifier
+            quality: Override quality for this run (0-100 or preset) (RFC-008/019)
+            importance: Task importance ("high", "medium", "low") adjusts quality
 
         Yields:
             StreamEvent objects (RUN_STARTED, AGENT_STARTED, AGENT_COMPLETED, etc.)
@@ -508,6 +512,13 @@ class LLMTeam:
 
         run_id = run_id or str(uuid.uuid4())
         self._current_run_id = run_id
+
+        # RFC-019: Determine effective quality (same logic as run())
+        effective_quality = self.quality
+        if quality is not None:
+            effective_quality = QualityManager(quality).quality
+        elif importance is not None:
+            effective_quality = self._quality_manager.with_importance(importance)
 
         if not self._agents:
             yield StreamEvent(
@@ -597,10 +608,11 @@ class LLMTeam:
                     if last_agent and last_agent in outputs:
                         context["previous"] = outputs[last_agent]
 
-                # RFC-019: Inject quality context for agent
-                context["_quality"] = self.quality
-                context["_quality_model"] = self._quality_manager.get_model("medium")
-                context["_quality_params"] = self._quality_manager.get_generation_params()
+                # RFC-019: Inject quality context for agent (using effective_quality)
+                q_manager = QualityManager(effective_quality)
+                context["_quality"] = effective_quality
+                context["_quality_model"] = q_manager.get_model("medium")
+                context["_quality_params"] = q_manager.get_generation_params()
 
                 # Execute agent
                 result = await agent.execute(
