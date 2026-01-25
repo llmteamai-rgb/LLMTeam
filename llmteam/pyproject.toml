@@ -111,6 +111,9 @@ jsonpath = [
 kafka = [
     "aiokafka>=0.10.0",
 ]
+playground = [
+    "streamlit>=1.30.0",
+]
 all = [
     "asyncpg>=0.28.0",
     "redis>=5.0.0",
