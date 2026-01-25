@@ -514,6 +514,8 @@ class LLMTeam:
         Yields:
             StreamEvent objects (RUN_STARTED, AGENT_STARTED, AGENT_COMPLETED, etc.)
 
+        RFC-019 TASK-Q-11: Uses shared router_loop() to avoid duplication.
+
         Example:
             async for event in team.stream({"query": "Hello"}):
                 if event.type == StreamEventType.TOKEN:
@@ -521,8 +523,8 @@ class LLMTeam:
                 elif event.type == StreamEventType.AGENT_COMPLETED:
                     print(f"Agent {event.agent_id} done")
         """
-        from datetime import datetime
         from llmteam.events.streaming import StreamEventType, StreamEvent
+        from llmteam.team.router import router_loop, RouterEventType
 
         run_id = run_id or str(uuid.uuid4())
         self._current_run_id = run_id
@@ -562,162 +564,78 @@ class LLMTeam:
             self._orchestrator.start_run(run_id)
         self._cost_tracker.start_run(run_id, self.team_id)
 
-        outputs = {}
-        agents_called = []
-        successful_agents = set()
-        current_state = {"input": input_data, "outputs": outputs}
-        iterations = 0
-        max_iterations = len(self._agents)
         error_msg = None
+        final_state = None
+        run_cost = None
 
         try:
-            while iterations < max_iterations:
-                available_agents = [
-                    a for a in self._agents.keys()
-                    if a not in successful_agents
-                ]
-                if not available_agents:
-                    break
-
-                decision = await self._orchestrator.decide_next_agent(
-                    current_state=current_state,
-                    available_agents=available_agents,
-                )
-
-                if decision.next_agent is None or decision.next_agent == "":
-                    break
-
-                agent = self._agents.get(decision.next_agent)
-                if agent is None:
-                    iterations += 1
-                    continue
-
-                if decision.next_agent in successful_agents:
-                    break
-
-                # Emit AGENT_STARTED
-                yield StreamEvent(
-                    type=StreamEventType.AGENT_STARTED,
-                    data={"role": agent.role, "reason": decision.reason},
-                    run_id=run_id,
-                    agent_id=agent.agent_id,
-                )
-
-                # RFC-017: Set up agent event buffer for tool call visibility
-                agent_events: list = []
-
-                async def _agent_event_cb(
-                    event_type: str, data: dict, agent_id: str
-                ) -> None:
-                    agent_events.append((event_type, data, agent_id))
-
-                # Set callback on LLMAgent if applicable
-                if hasattr(agent, "_event_callback"):
-                    agent._event_callback = _agent_event_cb
-
-                # Build context
-                context = {"outputs": outputs}
-                if outputs:
-                    last_agent = agents_called[-1] if agents_called else None
-                    if last_agent and last_agent in outputs:
-                        context["previous"] = outputs[last_agent]
-
-                # RFC-019: Inject quality context for agent (using effective_quality)
-                q_manager = QualityManager(effective_quality)
-                context["_quality"] = effective_quality
-                context["_quality_model"] = q_manager.get_model("medium")
-                context["_quality_params"] = q_manager.get_generation_params()
-
-                # Execute agent
-                result = await agent.execute(
-                    input_data=input_data,
-                    context=context,
-                    run_id=run_id,
-                )
-
-                # Clear callback
-                if hasattr(agent, "_event_callback"):
-                    agent._event_callback = None
-
-                # RFC-017: Yield buffered tool events
-                for evt_type, evt_data, evt_agent_id in agent_events:
-                    if evt_type == "tool_call":
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL,
-                            data=evt_data,
-                            run_id=run_id,
-                            agent_id=evt_agent_id,
-                        )
-                    elif evt_type == "tool_result":
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_RESULT,
-                            data=evt_data,
-                            run_id=run_id,
-                            agent_id=evt_agent_id,
-                        )
-
-                # RFC-010: Record token usage
-                if result.tokens_used > 0:
-                    agent_model = getattr(agent, "model", self._model)
-                    estimated_input = int(result.tokens_used * 0.6)
-                    estimated_output = result.tokens_used - estimated_input
-                    self._cost_tracker.record_usage(
-                        model=agent_model,
-                        input_tokens=estimated_input,
-                        output_tokens=estimated_output,
-                        agent_id=agent.agent_id,
-                    )
-
-                    # Emit COST_UPDATE
+            # Use shared router_loop (RFC-019 TASK-Q-11)
+            async for event in router_loop(
+                agents=self._agents,
+                orchestrator=self._orchestrator,
+                input_data=input_data,
+                run_id=run_id,
+                effective_quality=effective_quality,
+                cost_tracker=self._cost_tracker,
+                budget_manager=self._budget_manager,
+                default_model=self._model,
+                collect_tool_events=True,  # Stream needs tool events
+            ):
+                # Map RouterEvent to StreamEvent
+                if event.type == RouterEventType.AGENT_STARTED:
                     yield StreamEvent(
-                        type=StreamEventType.COST_UPDATE,
-                        data={
-                            "current_cost": self._cost_tracker.current_cost,
-                            "tokens": result.tokens_used,
-                        },
+                        type=StreamEventType.AGENT_STARTED,
+                        data=event.data,
                         run_id=run_id,
-                        agent_id=agent.agent_id,
+                        agent_id=event.agent_id,
                     )
-
-                    # Check budget
-                    if self._budget_manager:
-                        status = self._budget_manager.check(
-                            self._cost_tracker.current_cost
-                        )
-                        if status == BudgetStatus.EXCEEDED:
-                            yield StreamEvent(
-                                type=StreamEventType.RUN_FAILED,
-                                data={"error": "Budget exceeded"},
-                                run_id=run_id,
-                            )
-                            break
-
-                # Store result
-                outputs[agent.agent_id] = result.output
-                agents_called.append(agent.agent_id)
-
-                # Emit AGENT_COMPLETED or AGENT_FAILED
-                if result.success:
-                    successful_agents.add(agent.agent_id)
+                elif event.type == RouterEventType.AGENT_COMPLETED:
                     yield StreamEvent(
                         type=StreamEventType.AGENT_COMPLETED,
-                        data={"output": result.output},
+                        data=event.data,
                         run_id=run_id,
-                        agent_id=agent.agent_id,
+                        agent_id=event.agent_id,
                     )
-                    break
-                else:
+                elif event.type == RouterEventType.AGENT_FAILED:
                     yield StreamEvent(
                         type=StreamEventType.AGENT_FAILED,
-                        data={"error": result.error or "Unknown error"},
+                        data=event.data,
                         run_id=run_id,
-                        agent_id=agent.agent_id,
+                        agent_id=event.agent_id,
                     )
-
-                current_state["outputs"] = outputs
-                current_state["last_agent"] = agent.agent_id
-                current_state["last_result"] = result.output
-                iterations += 1
+                elif event.type == RouterEventType.TOOL_CALL:
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_CALL,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event.type == RouterEventType.TOOL_RESULT:
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_RESULT,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event.type == RouterEventType.COST_UPDATE:
+                    yield StreamEvent(
+                        type=StreamEventType.COST_UPDATE,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event.type == RouterEventType.BUDGET_EXCEEDED:
+                    yield StreamEvent(
+                        type=StreamEventType.RUN_FAILED,
+                        data={"error": "Budget exceeded"},
+                        run_id=run_id,
+                    )
+                    error_msg = "Budget exceeded"
+                elif event.type == RouterEventType.LOOP_DONE:
+                    final_state = event.data
+                    if final_state.get("error"):
+                        error_msg = final_state["error"]
+                # AGENT_SELECTED is internal, not yielded to stream
 
         except Exception as e:
             error_msg = str(e)
@@ -731,25 +649,19 @@ class LLMTeam:
             # End cost tracking
             if self._cost_tracker.current_run:
                 run_cost = self._cost_tracker.end_run()
-            else:
-                run_cost = None
 
             if self._orchestrator:
                 self._orchestrator.end_run()
             self._current_run_id = None
 
-        # Emit RUN_COMPLETED
-        if not error_msg:
-            final_output = None
-            if agents_called and agents_called[-1] in outputs:
-                final_output = outputs[agents_called[-1]]
-
+        # Emit RUN_COMPLETED or RUN_FAILED
+        if not error_msg and final_state:
             yield StreamEvent(
                 type=StreamEventType.RUN_COMPLETED,
                 data={
-                    "success": len(successful_agents) > 0,
-                    "output": final_output,
-                    "agents_called": agents_called,
+                    "success": final_state["success"],
+                    "output": final_state["final_output"],
+                    "agents_called": final_state["agents_called"],
                     "cost": run_cost.to_dict() if run_cost else None,
                 },
                 run_id=run_id,
@@ -832,119 +744,51 @@ class LLMTeam:
         For simple triage: ONE agent is selected and runs once.
 
         RFC-019: effective_quality is passed to agents via context.
+        RFC-019 TASK-Q-11: Uses shared router_loop() to avoid duplication.
         """
         from datetime import datetime
+        from llmteam.team.router import router_loop, RouterEventType
 
-        outputs = {}
-        agents_called = []
-        successful_agents = set()  # Track successful completions
-        current_state = {"input": input_data, "outputs": outputs}
-        iterations = 0
-        max_iterations = len(self._agents)  # Max = one call per agent
+        # Use quality from parameter or team default
+        quality = effective_quality if effective_quality is not None else self.quality
 
-        while iterations < max_iterations:
-            # Filter out agents that already succeeded
-            available_agents = [
-                a for a in self._agents.keys()
-                if a not in successful_agents
-            ]
-
-            # If all agents have run or none available, stop
-            if not available_agents:
+        # Consume router loop events
+        final_state = None
+        async for event in router_loop(
+            agents=self._agents,
+            orchestrator=self._orchestrator,
+            input_data=input_data,
+            run_id=run_id,
+            effective_quality=quality,
+            cost_tracker=self._cost_tracker,
+            budget_manager=self._budget_manager,
+            default_model=self._model,
+            collect_tool_events=False,  # Not needed for run()
+        ):
+            if event.type == RouterEventType.LOOP_DONE:
+                final_state = event.data
                 break
+            # Other events are ignored in run() mode
+            # (stream() would yield them as StreamEvents)
 
-            # Ask orchestrator which agent to run
-            decision = await self._orchestrator.decide_next_agent(
-                current_state=current_state,
-                available_agents=available_agents,
+        # Build result from final state
+        if final_state is None:
+            return RunResult(
+                success=False,
+                status=RunStatus.FAILED,
+                error="Router loop did not complete",
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
             )
-
-            # Check if done
-            if decision.next_agent is None or decision.next_agent == "":
-                break
-
-            # Get agent
-            agent = self._agents.get(decision.next_agent)
-            if agent is None:
-                # Invalid agent, skip
-                iterations += 1
-                continue
-
-            # Skip if already ran successfully (safety check)
-            if decision.next_agent in successful_agents:
-                break
-
-            # Build context from previous outputs
-            context = {"outputs": outputs}
-            if outputs:
-                # Pass last output as input for next agent
-                last_agent = agents_called[-1] if agents_called else None
-                if last_agent and last_agent in outputs:
-                    context["previous"] = outputs[last_agent]
-
-            # RFC-019: Inject quality context for agent
-            if effective_quality is not None:
-                q_manager = QualityManager(effective_quality)
-                context["_quality"] = effective_quality
-                context["_quality_model"] = q_manager.get_model("medium")
-                context["_quality_params"] = q_manager.get_generation_params()
-
-            # Execute agent
-            result = await agent.execute(
-                input_data=input_data,
-                context=context,
-                run_id=run_id,
-            )
-
-            # RFC-010: Record token usage for cost tracking
-            if result.tokens_used > 0:
-                agent_model = getattr(agent, "model", self._model)
-                # Estimate input/output split (60/40 heuristic when no detail)
-                estimated_input = int(result.tokens_used * 0.6)
-                estimated_output = result.tokens_used - estimated_input
-                self._cost_tracker.record_usage(
-                    model=agent_model,
-                    input_tokens=estimated_input,
-                    output_tokens=estimated_output,
-                    agent_id=agent.agent_id,
-                )
-
-                # Check budget
-                if self._budget_manager:
-                    from llmteam.cost import BudgetExceededError
-                    status = self._budget_manager.check(self._cost_tracker.current_cost)
-                    if status == BudgetStatus.EXCEEDED:
-                        break  # Stop execution
-
-            # Store result
-            outputs[agent.agent_id] = result.output
-            agents_called.append(agent.agent_id)
-
-            # Track success
-            if result.success:
-                successful_agents.add(agent.agent_id)
-                # For simple triage, one successful agent = done
-                break
-
-            # Update state for next iteration (if retrying or using fallback)
-            current_state["outputs"] = outputs
-            current_state["last_agent"] = agent.agent_id
-            current_state["last_result"] = result.output
-
-            iterations += 1
-
-        # Build result
-        final_output = None
-        if agents_called and agents_called[-1] in outputs:
-            final_output = outputs[agents_called[-1]]
 
         return RunResult(
-            success=len(successful_agents) > 0,
-            status=RunStatus.COMPLETED if successful_agents else RunStatus.FAILED,
-            output=outputs,
-            final_output=final_output,
-            agents_called=agents_called,
-            iterations=iterations,
+            success=final_state["success"],
+            status=RunStatus.COMPLETED if final_state["success"] else RunStatus.FAILED,
+            output=final_state["outputs"],
+            final_output=final_state["final_output"],
+            agents_called=final_state["agents_called"],
+            iterations=final_state["iterations"],
+            error=final_state.get("error"),
             started_at=started_at,
             completed_at=datetime.utcnow(),
         )
