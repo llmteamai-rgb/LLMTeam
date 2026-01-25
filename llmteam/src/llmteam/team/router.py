@@ -1,5 +1,7 @@
 """
-Router loop for ROUTER mode execution (RFC-019: TASK-Q-11).
+Router loop for ROUTER mode execution.
+
+RFC-021: Quality parameter removed. Agents use their configured models.
 
 Provides shared router iteration logic used by both
 _run_router_mode() and stream() methods.
@@ -13,11 +15,13 @@ if TYPE_CHECKING:
     from llmteam.agents.base import BaseAgent
     from llmteam.agents.orchestrator import TeamOrchestrator
     from llmteam.cost import BudgetManager, CostTracker
-    from llmteam.quality import QualityManager
 
 
 class RouterEventType(Enum):
     """Internal router event types."""
+
+    # User input (captured at start)
+    USER_INPUT = auto()
 
     # Agent lifecycle
     AGENT_SELECTED = auto()
@@ -88,7 +92,6 @@ async def router_loop(
     orchestrator: "TeamOrchestrator",
     input_data: Dict[str, Any],
     run_id: str,
-    effective_quality: int,
     cost_tracker: Optional["CostTracker"] = None,
     budget_manager: Optional["BudgetManager"] = None,
     default_model: str = "gpt-4o-mini",
@@ -96,6 +99,8 @@ async def router_loop(
 ) -> AsyncIterator[RouterEvent]:
     """
     Shared router iteration logic.
+
+    RFC-021: Quality parameter removed. Agents use their configured models.
 
     Generator yielding RouterEvent objects during execution.
     Both stream() and _run_router_mode() consume this.
@@ -105,7 +110,6 @@ async def router_loop(
         orchestrator: TeamOrchestrator for routing decisions
         input_data: Input data for execution
         run_id: Run identifier
-        effective_quality: Quality level (0-100)
         cost_tracker: Optional CostTracker for token accounting
         budget_manager: Optional BudgetManager for budget checks
         default_model: Default model name for cost tracking
@@ -119,7 +123,6 @@ async def router_loop(
             if event.type == RouterEventType.AGENT_COMPLETED:
                 print(f"Agent {event.agent_id} done")
     """
-    from llmteam.quality import QualityManager
     from llmteam.cost import BudgetStatus
 
     # Initialize state
@@ -128,39 +131,49 @@ async def router_loop(
 
     max_iterations = len(agents)
 
-    # Quality context (computed once)
-    q_manager = QualityManager(effective_quality)
-    quality_context = {
-        "_quality": effective_quality,
-        "_quality_model": q_manager.get_model("medium"),
-        "_quality_params": q_manager.get_generation_params(),
-    }
+    # Emit USER_INPUT event at the start of routing
+    yield RouterEvent(
+        type=RouterEventType.USER_INPUT,
+        data={
+            "input": input_data,
+        },
+    )
 
     while state.iterations < max_iterations:
-        # Filter out agents that already succeeded
+        # All agents are available (can be called again if needed for retry)
+        # But filter out agents that already succeeded to avoid duplicates
         available_agents = [
             a for a in agents.keys()
             if a not in state.successful_agents
         ]
 
-        # If all agents have run or none available, stop
+        # If no agents left to run, we're done
         if not available_agents:
             break
 
-        # Ask orchestrator which agent to run
+        # Ask orchestrator which agent to run next
         decision = await orchestrator.decide_next_agent(
             current_state=state.current_state,
             available_agents=available_agents,
         )
 
-        # Yield selection event
+        # Yield selection event (orchestrator decision)
         yield RouterEvent(
             type=RouterEventType.AGENT_SELECTED,
             agent_id=decision.next_agent,
-            data={"reason": decision.reason, "confidence": getattr(decision, "confidence", None)},
+            data={
+                "selected_by": "orchestrator",
+                "reason": decision.reason,
+                "confidence": getattr(decision, "confidence", None),
+                "is_task_complete": getattr(decision, "is_task_complete", False),
+            },
         )
 
-        # Check if done
+        # Check if orchestrator says task is complete
+        if getattr(decision, "is_task_complete", False):
+            break
+
+        # Check if no next agent (orchestrator signals completion)
         if decision.next_agent is None or decision.next_agent == "":
             break
 
@@ -170,9 +183,10 @@ async def router_loop(
             state.iterations += 1
             continue
 
-        # Skip if already ran successfully (safety check)
+        # Safety: skip if already ran successfully in THIS run
         if decision.next_agent in state.successful_agents:
-            break
+            state.iterations += 1
+            continue
 
         # Yield AGENT_STARTED
         yield RouterEvent(
@@ -181,15 +195,33 @@ async def router_loop(
             data={"role": agent.role, "reason": decision.reason},
         )
 
-        # Build context from previous outputs
-        context = {"outputs": state.outputs}
-        if state.outputs:
-            last_agent = state.agents_called[-1] if state.agents_called else None
-            if last_agent and last_agent in state.outputs:
-                context["previous"] = state.outputs[last_agent]
+        # Build context from previous outputs - rich context for chaining
+        context = {
+            "outputs": state.outputs,  # All outputs by agent_id
+            "original_input": input_data,  # Original user input
+            "agents_called": state.agents_called.copy(),  # Execution order
+        }
 
-        # Inject quality context (RFC-019)
-        context.update(quality_context)
+        # Add previous agent's output for easy access
+        if state.agents_called:
+            last_agent = state.agents_called[-1]
+            if last_agent in state.outputs:
+                context["previous"] = state.outputs[last_agent]
+                context["previous_output"] = state.outputs[last_agent]  # Explicit name
+                context["previous_agent"] = last_agent
+
+        # Build chain history for agents that need full context
+        if state.outputs:
+            chain_history = []
+            for agent_id in state.agents_called:
+                if agent_id in state.outputs:
+                    chain_history.append({
+                        "agent": agent_id,
+                        "output": state.outputs[agent_id],
+                    })
+            context["chain_history"] = chain_history
+
+        # RFC-021: Quality context removed. Agents use their configured models.
 
         # Set up tool event collection if requested
         agent_tool_events: list = []
@@ -269,8 +301,9 @@ async def router_loop(
                 agent_id=agent.agent_id,
                 data={"output": result.output},
             )
-            # For simple triage, one successful agent = done
-            break
+            # DON'T break here - let orchestrator decide if more agents needed
+            # The loop continues and orchestrator will return is_task_complete=True
+            # when the task is fully done
         else:
             yield RouterEvent(
                 type=RouterEventType.AGENT_FAILED,
@@ -278,10 +311,12 @@ async def router_loop(
                 data={"error": result.error or "Unknown error"},
             )
 
-        # Update state for next iteration
+        # Update state for next iteration - pass output to next agent
         state.current_state["outputs"] = state.outputs
         state.current_state["last_agent"] = agent.agent_id
         state.current_state["last_result"] = result.output
+        # Also add previous output directly for easy access
+        state.current_state["previous_output"] = result.output
 
         state.iterations += 1
 

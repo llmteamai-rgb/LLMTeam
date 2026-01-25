@@ -69,12 +69,35 @@ class LLMAgent(BaseAgent):
         # Start with base prompt
         formatted = self.prompt
 
-        # Format with input variables
+        # Build combined variables for formatting
+        # Context variables (previous_output, previous_agent, etc.)
+        format_vars = {}
+
+        # Add context variables that agents might want to use
+        if context:
+            # Previous output from chain
+            if "previous_output" in context:
+                prev = context["previous_output"]
+                if isinstance(prev, dict):
+                    format_vars["previous_output"] = str(prev)
+                else:
+                    format_vars["previous_output"] = prev
+            if "previous_agent" in context:
+                format_vars["previous_agent"] = context["previous_agent"]
+            # Original input
+            if "original_input" in context:
+                format_vars["original_input"] = str(context["original_input"])
+
+        # Input variables override context
+        format_vars.update(input_data)
+
+        # Format with combined variables
         try:
-            formatted = formatted.format(**input_data)
+            formatted = formatted.format(**format_vars)
         except KeyError:
-            # Allow missing keys
-            pass
+            # Allow missing keys - try partial formatting
+            for key, value in format_vars.items():
+                formatted = formatted.replace(f"{{{key}}}", str(value))
 
         # Add context if enabled
         if self.use_context and context:
@@ -95,6 +118,19 @@ class LLMAgent(BaseAgent):
                 for entity in kag_ctx[:5]:
                     context_parts.append(f"- {entity}")
 
+            # Chain history (for agents that need full pipeline context)
+            chain_history = context.get("chain_history", [])
+            if chain_history and len(chain_history) > 0:
+                context_parts.append("\n## Previous Steps:")
+                for step in chain_history:
+                    agent = step.get("agent", "unknown")
+                    output = step.get("output", "")
+                    if isinstance(output, dict):
+                        output = str(output)
+                    if len(output) > 200:
+                        output = output[:200] + "..."
+                    context_parts.append(f"- {agent}: {output}")
+
             if context_parts:
                 formatted = "\n".join(context_parts) + "\n\n" + formatted
 
@@ -114,8 +150,7 @@ class LLMAgent(BaseAgent):
         3. If response is text → return as output
         4. Stops after max_tool_rounds
 
-        RFC-019: Reads quality context (_quality_model, _quality_params)
-        injected by team.run() to override model/temperature/max_tokens.
+        RFC-021: Uses agent's own model/temperature/max_tokens directly.
 
         Args:
             input_data: Input data from team.run()
@@ -127,11 +162,10 @@ class LLMAgent(BaseAgent):
         # Format prompt
         formatted_prompt = self._format_prompt(input_data, context)
 
-        # RFC-019: Resolve effective model/params from quality context
-        effective_model = context.get("_quality_model", self.model)
-        quality_params = context.get("_quality_params", {})
-        effective_temperature = quality_params.get("temperature", self.temperature)
-        effective_max_tokens = quality_params.get("max_tokens", self.max_tokens)
+        # RFC-021: Use agent's configured parameters directly
+        effective_model = self.model
+        effective_temperature = self.temperature
+        effective_max_tokens = self.max_tokens
 
         # Get LLM provider from team's runtime
         provider = self._get_provider(effective_model)

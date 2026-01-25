@@ -18,7 +18,11 @@ class StreamEventType(str, Enum):
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
 
+    # User input (captured at run start)
+    USER_INPUT = "user_input"
+
     # Agent lifecycle
+    AGENT_SELECTED = "agent_selected"  # Orchestrator selected this agent
     AGENT_STARTED = "agent_started"
     AGENT_COMPLETED = "agent_completed"
     AGENT_FAILED = "agent_failed"

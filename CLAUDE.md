@@ -128,14 +128,19 @@ AgentReport                    — Automatic reporting to orchestrator
 | `quality/` | **QualityManager**, QualityPreset, CostEstimate, CostEstimator, **QualityAwareLLMMixin** (RFC-008/019) |
 | `builder/` | **DynamicTeamBuilder**, TeamBlueprint, AgentBlueprint, TOOL_MAP (RFC-021) |
 | `team/router.py` | **router_loop()** generator, RouterEvent, RouterEventType (RFC-019) |
+| `tools/` | **ToolDefinition**, ToolExecutor, @tool decorator, 5 built-in tools (RFC-016/017) |
+| `cost/` | CostTracker, BudgetManager, PeriodBudgetManager, PricingRegistry (RFC-010/019) |
 
-**Canvas & Runtime:**
+**Canvas/Engine & Runtime:**
 | Module | Purpose |
 |--------|---------|
-| `canvas/` | Segment execution engine, StepDefinition, EdgeDefinition |
-| `canvas/handlers/` | 12 built-in step handlers (llm_agent, team, transform, etc.) |
+| `engine/` | Workflow execution engine (renamed from `canvas/` in v5.0.0) |
+| `engine/engine.py` | **ExecutionEngine** (formerly SegmentRunner) |
+| `engine/models.py` | WorkflowDefinition, StepDefinition, EdgeDefinition |
+| `engine/handlers/` | 12 built-in step handlers (llm_agent, team, transform, etc.) |
 | `runtime/` | RuntimeContext, StepContext, resource injection |
-| `events/` | Worktrail events, EventEmitter, transports |
+| `events/` | StreamEvent, StreamEventType, EventEmitter, transports |
+| `configuration/` | **ConfigurationSession**, TaskAnalysis, AgentSuggestion (RFC-005) |
 
 **Enterprise:**
 | Module | Purpose |
@@ -486,7 +491,25 @@ blueprint = TeamBlueprint(
 )
 ```
 
-**TOOL_MAP:** Available tools for dynamic agents (only these 5):
+**Tool Execution Pattern (RFC-016/017):** Agents can call tools autonomously:
+```python
+from llmteam import tool, LLMTeam
+
+@tool(description="Get weather for a city")
+def get_weather(city: str, units: str = "celsius") -> str:
+    return f"Weather in {city}: 22°{units[0].upper()}"
+
+team = LLMTeam(team_id="assistant", orchestration=True)
+team.add_agent({
+    "type": "llm",
+    "role": "helper",
+    "prompt": "Help the user",
+    "tools": [get_weather.tool_definition],
+    "max_tool_rounds": 5,  # Up to 5 tool calls per request
+})
+```
+
+**TOOL_MAP:** Built-in tools for DynamicTeamBuilder (only these 5):
 - `web_search` — Search the web
 - `http_fetch` — Fetch URL content
 - `json_extract` — Extract from JSON via dot-notation
@@ -591,46 +614,28 @@ manager = team.get_quality_manager()
 # - CostEstimator for cost prediction
 ```
 
-## Migration from v4.0.0 to v4.1.0
+## Migration from v4.x to v4.1.0+
 
 ```python
-# v4.0.0 (deprecated)
-team = LLMTeam(team_id="support", orchestration=True)
-# Orchestrator was added as agent in _agents dict
-# team._has_orchestrator attribute used for checking
+# v4.0.0: Orchestrator was in _agents dict
+# v4.1.0+: TeamOrchestrator is SEPARATE entity (not an agent)
 
-# v4.1.0 (recommended)
 team = LLMTeam(team_id="support", orchestration=True)
-# TeamOrchestrator is now SEPARATE entity (not an agent)
 orchestrator = team.get_orchestrator()  # Returns TeamOrchestrator
 is_routing = team.is_router_mode  # Check if ROUTER mode enabled
 
-# Key changes in v4.1.0:
-# - TeamOrchestrator is separate class, NOT in _agents dict
+# Key changes:
 # - Use get_orchestrator() instead of _has_orchestrator
-# - Use is_router_mode property to check ROUTER mode
 # - Roles starting with _ are reserved (will raise error)
-# - RunResult now has .report and .summary fields
-# - AgentReport model for automatic reporting
+# - RunResult has .report and .summary fields
 ```
 
 ## Migration from v3.x to v4.0.0
 
 ```python
-# v3.x (deprecated)
-from llmteam import LLMTeam, Agent
+# v3.x: Custom Agent classes with process()
+# v4.0.0+: Use typed agents (LLM, RAG, KAG) via config dicts
 
-class MyAgent(Agent):  # Custom Agent class
-    async def process(self, state): ...
-
-team = LLMTeam(team_id="support")
-team.register_agent(MyAgent("triage"))
-result = await team.run(data)
-
-# v4.0.0 (recommended)
-from llmteam import LLMTeam
-
-# Use typed agents (LLM, RAG, KAG) via config dicts
 team = LLMTeam(
     team_id="support",
     agents=[
@@ -641,12 +646,10 @@ team = LLMTeam(
 )
 result = await team.run(data)
 
-# Key changes in v4.0.0:
-# - No custom Agent classes (use LLM/RAG/KAG types)
+# Key changes:
+# - No custom Agent classes (use LLM/RAG/KAG types only)
 # - Agents created via add_agent(config) not register_agent()
-# - Flow defined as string or dict DAG
-# - Orchestrator is just LLMAgent with preset prompt
-# - compat/ module removed (no backwards compatibility layer)
+# - Flow defined as string DAG or dict with edges/conditions
 ```
 
 ## Creating New Modules
@@ -718,6 +721,23 @@ result = await runner.run(segment=segment, input_data={"query": "Hello"}, runtim
 # v4.1.0: result.report and result.summary available from orchestrator
 ```
 
+## Playground (Interactive UI)
+
+The Streamlit-based playground provides an interactive UI for building and testing teams:
+
+```bash
+cd llmteam/playground
+streamlit run app.py
+```
+
+**Features:**
+- **Configurator Mode** — LLM helps configure team from task description
+- **Agent Management** — Add/edit agents with role, prompt, tools
+- **Execution** — Run teams with real-time streaming events
+- **API Key Persistence** — Keys saved locally for convenience
+
+**Location:** `llmteam/playground/app.py`
+
 ## Publishing to PyPI
 
 ```bash
@@ -730,13 +750,25 @@ python -m twine upload dist/* -u __token__ -p <pypi-token>
 
 ```
 LLMTeam/
-├── CLAUDE.md              # This file
+├── CLAUDE.md              # This file (Claude Code instructions)
 ├── README.md              # Project overview
 ├── llmteam/               # Python package (pip install -e ".[dev]")
-│   ├── src/llmteam/       # Source code
-│   ├── tests/             # Test suite
+│   ├── src/llmteam/       # Source code (~200 files)
+│   │   ├── agents/        # Typed agents, orchestrator, factory
+│   │   ├── team/          # LLMTeam, LLMGroup, router_loop
+│   │   ├── quality/       # QualityManager, presets, mixin
+│   │   ├── builder/       # DynamicTeamBuilder
+│   │   ├── engine/        # ExecutionEngine (workflow runner)
+│   │   ├── providers/     # LLM providers (OpenAI, Anthropic, etc.)
+│   │   ├── tools/         # ToolDefinition, ToolExecutor
+│   │   ├── configuration/ # ConfigurationSession
+│   │   └── ...            # Other modules (events, cost, auth, etc.)
+│   ├── tests/             # Test suite (organized by module)
+│   ├── playground/        # Streamlit interactive UI
+│   ├── examples/          # Usage examples
 │   ├── Makefile           # Build commands
-│   └── run_tests.py       # Test runner
+│   ├── run_tests.py       # Memory-safe test runner
+│   └── pyproject.toml     # Build & dependencies
 ├── docs/                  # Documentation
 └── open-core-changes/     # Open Core licensing utilities
 ```

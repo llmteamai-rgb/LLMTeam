@@ -516,27 +516,62 @@ def run_team(
                             i += 1
                             progress_bar.progress(min(i * 10, 100))
 
+                            # Safely get event type name
+                            try:
+                                event_type_name = event.type.name if hasattr(event.type, 'name') else str(event.type)
+                            except Exception:
+                                event_type_name = "UNKNOWN"
+
                             event_info = {
-                                "type": event.type.name,
+                                "type": event_type_name,
                                 "agent_id": event.agent_id,
                                 "timestamp": event.timestamp.isoformat() if event.timestamp else None,
                             }
 
-                            if event.type == StreamEventType.AGENT_STARTED:
+                            # Use getattr for safer comparison in case of enum mismatch
+                            event_type = getattr(event, 'type', None)
+
+                            if event_type == StreamEventType.RUN_STARTED:
+                                status_text.text(f"🚀 Run started: {event.data.get('team_id', 'unknown')}")
+                                event_info["team_id"] = event.data.get("team_id")
+                                event_info["agents"] = event.data.get("agents", [])
+                            elif event_type == StreamEventType.USER_INPUT:
+                                user_input_str = str(event.data.get("input", {}))
+                                if len(user_input_str) > 100:
+                                    user_input_str = user_input_str[:100] + "..."
+                                display_str = user_input_str[:50] if len(user_input_str) > 50 else user_input_str
+                                status_text.text(f"📝 User input: {display_str}")
+                                event_info["input"] = user_input_str
+                                event_info["quality"] = event.data.get("quality")
+                            elif event_type == StreamEventType.AGENT_SELECTED:
+                                reason = event.data.get("reason", "")
+                                status_text.text(f"🎯 Orchestrator selected: {event.agent_id}")
+                                event_info["selected_by"] = event.data.get("selected_by", "orchestrator")
+                                event_info["reason"] = reason[:100] if reason else None
+                                event_info["confidence"] = event.data.get("confidence")
+                            elif event_type == StreamEventType.AGENT_STARTED:
                                 status_text.text(f"🔄 Agent: {event.agent_id}")
                                 event_info["status"] = "started"
-                            elif event.type == StreamEventType.AGENT_COMPLETED:
+                            elif event_type == StreamEventType.AGENT_COMPLETED:
                                 status_text.text(f"✅ Agent: {event.agent_id} completed")
                                 event_info["output"] = str(event.data.get("output", ""))[:200]
-                            elif event.type == StreamEventType.TOOL_CALL:
+                            elif event_type == StreamEventType.TOOL_CALL:
                                 status_text.text(f"🔧 Tool: {event.data.get('tool_name', 'unknown')}")
                                 event_info["tool"] = event.data.get("tool_name")
-                            elif event.type == StreamEventType.RUN_COMPLETED:
+                            elif event_type == StreamEventType.RUN_COMPLETED:
                                 status_text.text("✅ Run completed")
                                 event_info["success"] = True
-                            elif event.type == StreamEventType.RUN_FAILED:
+                            elif event_type == StreamEventType.RUN_FAILED:
                                 status_text.text("❌ Run failed")
                                 event_info["error"] = str(event.data.get("error", ""))
+                            elif event_type == StreamEventType.COST_UPDATE:
+                                event_info["tokens"] = event.data.get("tokens")
+                                event_info["cost"] = event.data.get("current_cost")
+                            elif event_type == StreamEventType.TOOL_RESULT:
+                                event_info["result"] = str(event.data.get("result", ""))[:100]
+                            else:
+                                # Handle any other event types gracefully
+                                event_info["raw_data"] = str(event.data)[:200] if event.data else None
 
                             events_log.append(event_info)
                             event_placeholder.json(events_log)
@@ -544,8 +579,15 @@ def run_team(
                         progress_bar.progress(100)
 
                     except Exception as e:
+                        import traceback
+                        error_details = traceback.format_exc()
                         status_text.text(f"❌ Error: {e}")
-                        events_log.append({"type": "ERROR", "error": str(e)})
+                        events_log.append({
+                            "type": "ERROR",
+                            "error": str(e),
+                            "traceback": error_details,
+                        })
+                        st.error(f"```\n{error_details}\n```")
                         return None
             else:
                 status_text.text("Running...")

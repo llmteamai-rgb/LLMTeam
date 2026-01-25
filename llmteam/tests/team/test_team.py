@@ -368,3 +368,167 @@ class TestLLMTeamMagicMethods:
 
         team.add_agent({"type": "llm", "role": "b", "prompt": "B"})
         assert len(team) == 2
+
+
+class TestLLMTeamMultiAgentPipeline:
+    """Tests for multi-agent pipeline execution (RFC-019 improvements)."""
+
+    def test_context_format_vars(self):
+        """Test that context variables are available for prompt formatting."""
+        # Create team with agent
+        team = LLMTeam(
+            team_id="test",
+            agents=[
+                {
+                    "type": "llm",
+                    "role": "reviewer",
+                    "prompt": "Review the following content: {previous_output}",
+                },
+            ],
+        )
+
+        agent = team.get_agent("reviewer")
+
+        # Simulate context from previous agent
+        context = {
+            "previous_output": "This is content from fetcher agent",
+            "previous_agent": "fetcher",
+        }
+
+        # Format prompt
+        formatted = agent._format_prompt({"query": "test"}, context)
+
+        # Should contain the previous output
+        assert "This is content from fetcher agent" in formatted
+
+    def test_context_chain_history(self):
+        """Test that chain history is included when use_context=True."""
+        team = LLMTeam(
+            team_id="test",
+            agents=[
+                {
+                    "type": "llm",
+                    "role": "final",
+                    "prompt": "Finalize: {query}",
+                    "use_context": True,
+                },
+            ],
+        )
+
+        agent = team.get_agent("final")
+
+        context = {
+            "chain_history": [
+                {"agent": "fetcher", "output": "Fetched content about AI"},
+                {"agent": "analyzer", "output": "Key points: 1, 2, 3"},
+            ],
+        }
+
+        formatted = agent._format_prompt({"query": "test"}, context)
+
+        # Should contain chain history
+        assert "Previous Steps:" in formatted
+        assert "fetcher" in formatted
+        assert "analyzer" in formatted
+
+    def test_routing_decision_has_is_task_complete(self):
+        """Test that RoutingDecision includes is_task_complete field."""
+        from llmteam.agents.orchestrator import RoutingDecision
+
+        decision = RoutingDecision(
+            next_agent="writer",
+            reason="Need to write content",
+            is_task_complete=False,
+        )
+
+        assert decision.is_task_complete is False
+
+        decision_done = RoutingDecision(
+            next_agent="",
+            reason="All steps complete",
+            is_task_complete=True,
+        )
+
+        assert decision_done.is_task_complete is True
+
+    def test_router_state_tracks_all_outputs(self):
+        """Test that RouterState tracks all agent outputs."""
+        from llmteam.team.router import RouterState
+
+        state = RouterState()
+
+        # Simulate multiple agents completing
+        state.outputs["fetcher"] = "Fetched data"
+        state.agents_called.append("fetcher")
+        state.successful_agents.add("fetcher")
+
+        state.outputs["analyzer"] = "Analyzed: key points"
+        state.agents_called.append("analyzer")
+        state.successful_agents.add("analyzer")
+
+        # Check state
+        assert len(state.outputs) == 2
+        assert len(state.agents_called) == 2
+        assert state.final_output == "Analyzed: key points"
+        assert state.success is True
+
+    def test_routing_prompt_includes_previous_output(self):
+        """Test that routing prompt includes previous agent output."""
+        from llmteam.agents.prompts import build_routing_prompt
+        from llmteam.agents.report import AgentReport
+        from datetime import datetime
+
+        team = LLMTeam(
+            team_id="test",
+            agents=[
+                {"type": "llm", "role": "fetcher", "prompt": "Fetch: {query}"},
+                {"type": "llm", "role": "writer", "prompt": "Write: {previous_output}"},
+            ],
+            orchestration=True,
+        )
+
+        # Simulate execution history with output
+        history = [
+            AgentReport(
+                agent_id="fetcher",
+                agent_role="fetcher",
+                agent_type="llm",
+                started_at=datetime.utcnow(),
+                completed_at=datetime.utcnow(),
+                duration_ms=100,
+                success=True,
+                output_summary="Fetched content about LLMs",
+            ),
+        ]
+
+        current_state = {
+            "input": {"query": "AI trends"},
+            "outputs": {"fetcher": "Fetched content about LLMs"},
+        }
+
+        prompt = build_routing_prompt(
+            team=team,
+            current_state=current_state,
+            available_agents=["writer"],
+            execution_history=history,
+        )
+
+        # Should include previous output
+        assert "Fetched content about LLMs" in prompt
+        # Should NOT force completion
+        assert "TASK IS COMPLETE - return null" not in prompt
+        # Should ask orchestrator to decide
+        assert "Decide if more agents needed" in prompt
+
+    def test_user_input_event_type_exists(self):
+        """Test that USER_INPUT event type exists in StreamEventType."""
+        from llmteam.events.streaming import StreamEventType
+
+        assert hasattr(StreamEventType, "USER_INPUT")
+        assert StreamEventType.USER_INPUT.value == "user_input"
+
+    def test_router_event_type_has_user_input(self):
+        """Test that RouterEventType includes USER_INPUT."""
+        from llmteam.team.router import RouterEventType
+
+        assert hasattr(RouterEventType, "USER_INPUT")

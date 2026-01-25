@@ -315,24 +315,21 @@ class ConfigurationSession(QualityAwareLLMMixin):
 
     @property
     def quality(self) -> int:
-        """Get effective quality level."""
+        """Get effective quality level. RFC-021: Default 50, team no longer has quality."""
         if self._quality is not None:
             return self._quality
-        return self.team.quality
+        return 50  # RFC-021: Default quality, team no longer stores quality
 
     # === RFC-019: QualityAwareLLMMixin implementation ===
 
     def _get_quality_manager(self) -> QualityManager:
         """
-        Get QualityManager from team or create temporary one.
+        Get QualityManager for the session.
 
-        RFC-019: Returns session-specific manager if quality override is set,
-        otherwise returns team's manager.
+        RFC-021: ConfigurationSession owns its quality, team no longer has quality.
+        Always creates manager with session's quality level.
         """
-        if self._quality is not None:
-            # Session has explicit quality override
-            return QualityManager(self._quality)
-        return self.team._quality_manager
+        return QualityManager(self.quality)
 
     def _get_quality_label(self) -> str:
         """Get human-readable quality label for prompts."""
@@ -635,14 +632,13 @@ class ConfigurationSession(QualityAwareLLMMixin):
         """
         Build a temporary team with current config for testing.
 
-        RFC-019: Passes quality to temp team.
+        RFC-021: LLMTeam no longer has quality parameter.
         """
         from llmteam.team import LLMTeam
 
-        # RFC-019: Pass quality to temp team
+        # RFC-021: LLMTeam no longer accepts quality
         temp_team = LLMTeam(
             team_id=f"{self.team.team_id}_test",
-            quality=self.quality,
         )
 
         for agent_config in self.current_agents:

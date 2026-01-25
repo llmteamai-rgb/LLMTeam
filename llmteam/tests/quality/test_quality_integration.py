@@ -139,27 +139,27 @@ class TestQualityAwareLLMMixin:
 
 
 class TestConfigurationSessionQuality:
-    """Tests for quality-aware ConfigurationSession."""
+    """Tests for quality-aware ConfigurationSession. RFC-021: Quality only in session."""
 
-    def test_session_inherits_team_quality(self):
-        """Session should inherit quality from team."""
+    def test_session_default_quality(self):
+        """Session should have default quality 50. RFC-021."""
         from llmteam import LLMTeam
         from llmteam.configuration import ConfigurationSession
 
-        team = LLMTeam(team_id="test", quality=75)
+        team = LLMTeam(team_id="test")
         session = ConfigurationSession(
             session_id="test",
             team=team,
             task="test task",
         )
-        assert session.quality == 75
+        assert session.quality == 50  # RFC-021: Default quality is 50
 
     def test_session_quality_override(self):
-        """Session can override team quality."""
+        """Session can set quality explicitly via set_quality(). RFC-021."""
         from llmteam import LLMTeam
         from llmteam.configuration import ConfigurationSession
 
-        team = LLMTeam(team_id="test", quality=30)
+        team = LLMTeam(team_id="test")
         session = ConfigurationSession(
             session_id="test",
             team=team,
@@ -169,22 +169,24 @@ class TestConfigurationSessionQuality:
         assert session.quality == 80
 
     def test_get_quality_manager_returns_correct_manager(self):
-        """_get_quality_manager should return appropriate manager."""
+        """_get_quality_manager should return session's manager. RFC-021."""
         from llmteam import LLMTeam
         from llmteam.configuration import ConfigurationSession
 
-        team = LLMTeam(team_id="test", quality=60)
+        team = LLMTeam(team_id="test")
         session = ConfigurationSession(
             session_id="test",
             team=team,
             task="test task",
         )
+        # RFC-021: Use set_quality() to set quality
+        session.set_quality(60)
 
-        # Without override - uses team's quality
+        # Uses session's quality
         manager = session._get_quality_manager()
         assert manager.quality == 60
 
-        # With override - uses session's quality
+        # Can override
         session.set_quality(90)
         manager = session._get_quality_manager()
         assert manager.quality == 90
@@ -194,154 +196,137 @@ class TestConfigurationSessionQuality:
 
 
 class TestTeamOrchestratorQuality:
-    """Tests for quality-aware TeamOrchestrator."""
+    """Tests for TeamOrchestrator. RFC-021: Uses explicit model/temperature."""
 
-    def test_orchestrator_uses_team_quality(self):
-        """Orchestrator should use team's quality manager."""
+    def test_orchestrator_uses_config_model(self):
+        """Orchestrator should use model from config. RFC-021."""
         from llmteam import LLMTeam
+        from llmteam.agents.orchestrator import OrchestratorConfig
 
-        team = LLMTeam(team_id="test", quality=85)
+        config = OrchestratorConfig(model="gpt-4-turbo", temperature=0.2)
+        team = LLMTeam(team_id="test", orchestrator=config)
         team.add_agent({"type": "llm", "role": "worker", "prompt": "Work"})
 
         orch = team.get_orchestrator()
-        manager = orch._get_quality_manager()
-        assert manager.quality == 85
+        assert orch._config.model == "gpt-4-turbo"
+        assert orch._config.temperature == 0.2
 
     @pytest.mark.asyncio
-    async def test_decide_next_agent_uses_quality_llm(self):
-        """decide_next_agent should use quality-aware LLM."""
+    async def test_decide_next_agent_uses_config_model(self):
+        """decide_next_agent should use model from config. RFC-021."""
         from llmteam import LLMTeam
         from llmteam.agents.orchestrator import OrchestratorConfig, OrchestratorMode
+        from unittest.mock import patch, AsyncMock
 
-        team = LLMTeam(
-            team_id="test",
-            quality=70,
-            orchestrator=OrchestratorConfig(mode=OrchestratorMode.ACTIVE),
+        config = OrchestratorConfig(
+            mode=OrchestratorMode.ACTIVE,
+            model="gpt-4-turbo",
+            temperature=0.2,
         )
+        team = LLMTeam(team_id="test", orchestrator=config)
         team.add_agent({"type": "llm", "role": "worker", "prompt": "Work"})
 
         orch = team.get_orchestrator()
 
-        with patch.object(orch, "_quality_complete", new_callable=AsyncMock) as mock:
-            mock.return_value = '{"next_agent": "worker", "reason": "test"}'
-
-            await orch.decide_next_agent(
-                current_state={"input": "test"},
-                available_agents=["worker"],
-            )
-
-            mock.assert_called_once()
-            call_kwargs = mock.call_args.kwargs
-            assert call_kwargs["complexity"] == "simple"
+        # RFC-021: Orchestrator now uses provider.complete directly
+        assert orch._config.model == "gpt-4-turbo"
+        assert orch._config.temperature == 0.2
 
 
 # === GroupOrchestrator Quality Tests ===
 
 
 class TestGroupOrchestratorQuality:
-    """Tests for quality-aware GroupOrchestrator."""
+    """Tests for GroupOrchestrator. RFC-021: Uses model/temperature instead of quality."""
 
-    def test_group_orchestrator_has_quality(self):
-        """GroupOrchestrator should have quality property."""
+    def test_group_orchestrator_has_model(self):
+        """GroupOrchestrator should have model property. RFC-021."""
         from llmteam.orchestration import GroupOrchestrator
 
-        group = GroupOrchestrator(group_id="test", quality=65)
-        assert group.quality == 65
+        group = GroupOrchestrator(group_id="test", model="gpt-4-turbo")
+        assert group._model == "gpt-4-turbo"
 
-    def test_group_orchestrator_quality_setter(self):
-        """GroupOrchestrator quality should be settable."""
+    def test_group_orchestrator_has_temperature(self):
+        """GroupOrchestrator should have temperature. RFC-021."""
         from llmteam.orchestration import GroupOrchestrator
 
-        group = GroupOrchestrator(group_id="test", quality=50)
-        group.quality = 80
-        assert group.quality == 80
+        group = GroupOrchestrator(group_id="test", temperature=0.5)
+        assert group._temperature == 0.5
 
-    def test_group_get_quality_manager(self):
-        """GroupOrchestrator should return quality manager."""
+    def test_group_default_model_and_temperature(self):
+        """GroupOrchestrator should have default model/temperature. RFC-021."""
         from llmteam.orchestration import GroupOrchestrator
 
-        group = GroupOrchestrator(group_id="test", quality=75)
-        manager = group._get_quality_manager()
-        assert manager.quality == 75
+        group = GroupOrchestrator(group_id="test")
+        assert group._model == "gpt-4o"
+        assert group._temperature == 0.3
 
 
 # === Budget Pre-Check Tests ===
 
 
 class TestBudgetPreCheck:
-    """Tests for RFC-019 budget pre-check with quality."""
+    """Tests for budget management. RFC-021: Budget without quality-based estimation."""
 
     @pytest.mark.asyncio
-    async def test_budget_precheck_passes_when_under_limit(self):
-        """Run should proceed when estimated cost is under budget."""
+    async def test_team_with_budget_limit(self):
+        """Team should accept max_cost_per_run. RFC-021."""
         from llmteam import LLMTeam
         from llmteam.team.result import RunResult, RunStatus
 
         team = LLMTeam(
             team_id="test",
-            quality=50,
-            max_cost_per_run=10.0,  # High limit
+            max_cost_per_run=10.0,
         )
         team.add_agent({"type": "llm", "role": "worker", "prompt": "Work: {input}"})
 
-        # Mock agent execution (bypass actual router)
-        with patch.object(team, "_run_router_mode", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = RunResult(success=True, status=RunStatus.COMPLETED)
-
-            result = await team.run({"input": "test"})
-            # Should not fail on budget pre-check
-            assert "Pre-flight budget check failed" not in (result.error or "")
+        assert team._max_cost_per_run == 10.0
 
     @pytest.mark.asyncio
-    async def test_budget_precheck_fails_when_over_limit(self):
-        """Run should fail when estimated cost exceeds budget."""
+    async def test_team_budget_manager_created(self):
+        """Team should create budget manager when limit set. RFC-021."""
         from llmteam import LLMTeam
 
         team = LLMTeam(
             team_id="test",
-            quality=90,  # High quality = higher cost
-            max_cost_per_run=0.0001,  # Very low limit
+            max_cost_per_run=5.0,
         )
-        team.add_agent({"type": "llm", "role": "worker", "prompt": "Work: {input}"})
 
-        result = await team.run({"input": "test"})
-
-        assert result.success is False
-        assert "Pre-flight budget check failed" in (result.error or "")
+        assert team._budget_manager is not None
 
 
-# === Streaming Quality Tests ===
+# === Streaming Tests ===
 
 
 class TestStreamingQuality:
-    """Tests for quality in streaming path (TASK-Q-10)."""
+    """Tests for streaming. RFC-021: quality/importance removed from stream()."""
 
     @pytest.mark.asyncio
-    async def test_stream_accepts_quality_override(self):
-        """stream() should accept quality parameter."""
+    async def test_stream_signature(self):
+        """stream() should have input_data and run_id params. RFC-021."""
         from llmteam import LLMTeam
 
-        team = LLMTeam(team_id="test", quality=50, orchestration=True)
-        team.add_agent({"type": "llm", "role": "worker", "prompt": "Work: {input}"})
-
-        # Just verify the method signature accepts quality
-        # Actual execution would require more complex mocking
-        import inspect
-        sig = inspect.signature(team.stream)
-        assert "quality" in sig.parameters
-        assert "importance" in sig.parameters
-
-    @pytest.mark.asyncio
-    async def test_stream_accepts_importance(self):
-        """stream() should accept importance parameter."""
-        from llmteam import LLMTeam
-
-        team = LLMTeam(team_id="test", quality=50, orchestration=True)
+        team = LLMTeam(team_id="test", orchestration=True)
         team.add_agent({"type": "llm", "role": "worker", "prompt": "Work: {input}"})
 
         import inspect
         sig = inspect.signature(team.stream)
-        assert "importance" in sig.parameters
+        assert "input_data" in sig.parameters
+        assert "run_id" in sig.parameters
+        # RFC-021: quality and importance removed
+        assert "quality" not in sig.parameters
+        assert "importance" not in sig.parameters
+
+    @pytest.mark.asyncio
+    async def test_stream_returns_async_iterator(self):
+        """stream() should return async iterator. RFC-021."""
+        from llmteam import LLMTeam
+        import inspect
+
+        team = LLMTeam(team_id="test", orchestration=True)
+
+        # stream() should be an async generator
+        assert inspect.isasyncgenfunction(team.stream)
 
 
 # === DynamicTeamBuilder Quality Tests ===

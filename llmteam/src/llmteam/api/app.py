@@ -105,6 +105,22 @@ def create_app(
             "description": "Health check and system status endpoints",
         },
         {
+            "name": "Teams",
+            "description": "LLMTeam management and execution (RFC-020)",
+        },
+        {
+            "name": "Agents",
+            "description": "Agent configuration within teams (RFC-020)",
+        },
+        {
+            "name": "Sessions",
+            "description": "Configuration sessions - CONFIGURATOR mode (RFC-020)",
+        },
+        {
+            "name": "Groups",
+            "description": "Multi-team group orchestration (RFC-020)",
+        },
+        {
             "name": "Catalog",
             "description": "Step types catalog management",
         },
@@ -130,10 +146,18 @@ def create_app(
 Enterprise AI Workflow Runtime for building multi-agent LLM pipelines.
 
 ### Features
+- **Teams Management**: Create, configure, and run LLMTeam instances (RFC-020)
+- **Agent Configuration**: Add and manage agents within teams
+- **Configuration Sessions**: CONFIGURATOR mode for intelligent team setup
+- **Group Orchestration**: Coordinate multiple teams working together
 - **Segment Management**: Create, update, and validate workflow segments
 - **Execution Control**: Start, pause, resume, and cancel workflow runs
-- **Real-time Events**: WebSocket streaming for UI integration
+- **Real-time Events**: WebSocket and SSE streaming for UI integration
 - **Step Catalog**: Registry of built-in and custom step types
+
+### Quality Control (RFC-021)
+Quality is a design-time parameter set in ConfigurationSession.
+Agents use their configured models at runtime.
 
 ### Authentication
 API supports JWT, API Key, and OIDC authentication (configure via middleware).
@@ -166,6 +190,13 @@ API endpoints are rate-limited. Default: 100 requests/minute per IP.
     app.state.idempotency_cache = {}
     app.state.rate_limit = rate_limit
 
+    # RFC-020: Teams API state
+    app.state.teams = {}           # team_id -> {team, created_at, description}
+    app.state.sessions = {}        # session_id -> {session, team_id, created_at}
+    app.state.groups = {}          # group_id -> {group, created_at}
+    app.state.team_runs = {}       # idempotency_key -> TeamRunResponse
+    app.state.team_budgets = {}    # team_id -> budget settings
+
     # Rate limiting (optional, requires slowapi)
     if enable_rate_limit and SLOWAPI_AVAILABLE:
         limiter = Limiter(key_func=get_remote_address, default_limits=[rate_limit])
@@ -190,6 +221,13 @@ API endpoints are rate-limited. Default: 100 requests/minute per IP.
     # Register WebSocket routes
     from llmteam.api.websocket import register_websocket_routes
     register_websocket_routes(app)
+
+    # RFC-020: Register Teams API routes
+    from llmteam.api.routes import teams_router, agents_router, sessions_router, groups_router
+    app.include_router(teams_router)
+    app.include_router(agents_router)
+    app.include_router(sessions_router)
+    app.include_router(groups_router)
 
     return app
 

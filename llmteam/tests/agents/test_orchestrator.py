@@ -112,11 +112,12 @@ class TestOrchestratorConfig:
     """Tests for OrchestratorConfig."""
 
     def test_default_config(self):
-        """Test default configuration."""
+        """Test default configuration. RFC-021: model is gpt-4o."""
         config = OrchestratorConfig()
 
         assert config.mode == OrchestratorMode.PASSIVE
-        assert config.model == "gpt-4o-mini"
+        assert config.model == "gpt-4o"  # RFC-021: Changed from gpt-4o-mini
+        assert config.temperature == 0.1  # RFC-021: Added temperature
         assert config.generate_report is True
 
     def test_active_config(self):

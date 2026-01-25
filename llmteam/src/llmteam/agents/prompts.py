@@ -38,6 +38,9 @@ Input: {input_summary}
 Progress: {progress}
 Quality Level: {quality}/100
 
+## Previous Agent Output
+{previous_output}
+
 ## Execution History
 {execution_log}
 
@@ -45,30 +48,44 @@ Quality Level: {quality}/100
 {agent_descriptions}
 
 ## Instructions
-You are orchestrating a team of agents. For each task:
-1. Select ONE agent that is most appropriate to handle the task
-2. After that agent completes successfully, the task is DONE
-3. Do NOT call the same agent twice for the same task
-4. Do NOT call another agent unless the first one failed
+You are orchestrating a team of agents to complete a task. Think step by step:
 
-Quality guidance (RFC-019):
-- At quality < 30: Prefer quick, simple solutions with fewer agents
-- At quality 30-70: Balance speed and thoroughness
-- At quality > 70: Prefer thorough, multi-step approaches if needed
+1. **Analyze the task**: What needs to be done to fully complete the user's request?
+2. **Plan the sequence**: Which agents are needed and in what order?
+3. **Check progress**: What has already been done? What output is available?
+4. **Decide next step**: Select the next agent OR mark task complete.
 
-IMPORTANT: If an agent has already successfully handled the task, return null to indicate completion.
+### Chaining Pattern
+Many tasks require multiple agents working in sequence:
+- Agent A produces output → Agent B uses that output → Agent C finalizes
+- Each agent should receive the PREVIOUS agent's output as context
+- Example: fetcher → analyzer → writer (each step builds on the previous)
+
+### When to continue (select next agent)
+- Task requires multiple processing steps
+- Previous agent produced intermediate output that needs further processing
+- User's goal is not yet fully achieved
+
+### When to stop (return null)
+- The task is FULLY complete (user's goal achieved)
+- Final output is ready for the user
+- No more agents can add value
+
+Quality guidance:
+- quality < 30: Use minimal agents, favor speed
+- quality 30-70: Balance thoroughness with efficiency
+- quality > 70: Use full pipeline, ensure quality at each step
 
 Respond in JSON format:
 {{
     "next_agent": "<agent_id>" or null,
-    "reason": "<brief explanation>",
-    "confidence": <0.0-1.0>
+    "reason": "<brief explanation of why this agent is needed next>",
+    "confidence": <0.0-1.0>,
+    "is_task_complete": true/false,
+    "remaining_steps": ["<agent_ids still needed>"]
 }}
 
-Return null for next_agent when:
-- An agent has already successfully handled the task
-- No more processing is needed
-- The task is complete"""
+Set is_task_complete=true and next_agent=null when the task is FULLY done."""
 
 
 # Error recovery prompt
@@ -171,17 +188,22 @@ def build_routing_prompt(
     Returns:
         Formatted routing prompt
     """
-    # Build agent descriptions
+    # Build agent descriptions with clear capabilities
     agent_descriptions = []
     for agent_id in available_agents:
         agent = team.get_agent(agent_id)
         if agent:
             desc = f"- {agent_id} ({agent.agent_type.value}): {agent.description or agent.name}"
+            # Add prompt hint if available
+            if hasattr(agent, "prompt") and agent.prompt:
+                prompt_hint = agent.prompt[:100] + "..." if len(agent.prompt) > 100 else agent.prompt
+                desc += f"\n  Prompt: {prompt_hint}"
             agent_descriptions.append(desc)
 
-    # Build execution log with clear success/failure info
+    # Build execution log with outputs
     exec_log = []
     successful_agents = []
+    last_output = None
     for report in execution_history:
         status = "SUCCESS" if report.success else f"FAILED: {report.error}"
         exec_log.append(
@@ -189,17 +211,36 @@ def build_routing_prompt(
         )
         if report.success:
             successful_agents.append(report.agent_id)
+            # Track last successful output
+            last_output = report.output_summary
 
     # Create input summary
     input_str = str(current_state.get("input", current_state))
-    if len(input_str) > 200:
-        input_str = input_str[:200] + "..."
+    if len(input_str) > 300:
+        input_str = input_str[:300] + "..."
 
-    # Add clear progress message
+    # Build progress message (no longer forcing completion)
     if successful_agents:
-        progress = f"{len(execution_history)} agents executed. SUCCESS: {', '.join(successful_agents)}. TASK IS COMPLETE - return null."
+        progress = f"{len(execution_history)} agents executed. Completed: {', '.join(successful_agents)}. Decide if more agents needed."
     else:
-        progress = f"{len(execution_history)} agents executed"
+        progress = f"{len(execution_history)} agents executed. No successful completions yet."
+
+    # Get previous output for context passing
+    previous_output = "None (first agent)"
+    if last_output:
+        prev_str = str(last_output)
+        if len(prev_str) > 500:
+            prev_str = prev_str[:500] + "..."
+        previous_output = prev_str
+    elif current_state.get("outputs"):
+        # Fallback to state outputs
+        outputs = current_state["outputs"]
+        if outputs:
+            last_key = list(outputs.keys())[-1]
+            prev_str = str(outputs[last_key])
+            if len(prev_str) > 500:
+                prev_str = prev_str[:500] + "..."
+            previous_output = f"From {last_key}: {prev_str}"
 
     # RFC-019: Get quality from team
     quality = getattr(team, "quality", 50)
@@ -208,6 +249,7 @@ def build_routing_prompt(
         input_summary=input_str,
         progress=progress,
         quality=quality,
+        previous_output=previous_output,
         execution_log="\n".join(exec_log) if exec_log else "No agents executed yet",
         agent_descriptions="\n".join(agent_descriptions),
     )

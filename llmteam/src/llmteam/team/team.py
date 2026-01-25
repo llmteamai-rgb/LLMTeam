@@ -26,7 +26,6 @@ from llmteam.agents.orchestrator import (
 )
 from llmteam.team.result import RunResult, RunStatus, ContextMode
 from llmteam.team.snapshot import TeamSnapshot
-from llmteam.quality import QualityManager
 from llmteam.cost import CostTracker, Budget, BudgetManager, BudgetStatus
 
 # Check if engine module is available
@@ -67,13 +66,15 @@ class LLMTeam:
         orchestration: bool = False,
         orchestrator: Optional[OrchestratorConfig] = None,
         timeout: Optional[int] = None,
-        quality: Union[int, str] = 50,
         max_cost_per_run: Optional[float] = None,
         enforce_lifecycle: bool = False,
         **kwargs,
     ):
         """
         Initialize team.
+
+        RFC-021: Quality is now a design-time parameter only.
+        Use ConfigurationSession.quality to configure agent models.
 
         Args:
             team_id: Unique team identifier
@@ -84,9 +85,6 @@ class LLMTeam:
             orchestration: DEPRECATED. Use orchestrator=OrchestratorConfig(mode=ACTIVE)
             orchestrator: Orchestrator configuration (PASSIVE by default)
             timeout: Execution timeout in seconds
-            quality: Quality slider 0-100 or preset name (RFC-008)
-                     Presets: "draft"=20, "economy"=30, "balanced"=50,
-                     "production"=75, "best"=95, "auto"=adaptive
             max_cost_per_run: Optional cost limit per run in USD (safety)
             enforce_lifecycle: Enable lifecycle state enforcement (RFC-014).
                              When True, team must be configured and marked
@@ -98,9 +96,6 @@ class LLMTeam:
         self._context_mode = context_mode
         self._timeout = timeout
         self._max_cost_per_run = max_cost_per_run
-
-        # Quality management (RFC-008)
-        self._quality_manager = QualityManager(quality)
 
         # RFC-010: Cost tracking & budget management
         self._cost_tracker = CostTracker()
@@ -247,22 +242,6 @@ class LLMTeam:
             return False
         return self._orchestrator.is_router
 
-    # Quality Management (RFC-008)
-
-    @property
-    def quality(self) -> int:
-        """Get current quality level (0-100)."""
-        return self._quality_manager.quality
-
-    @quality.setter
-    def quality(self, value: Union[int, str]) -> None:
-        """Set quality level (0-100 or preset name)."""
-        self._quality_manager.quality = value
-
-    def get_quality_manager(self) -> QualityManager:
-        """Get the QualityManager instance."""
-        return self._quality_manager
-
     # Cost Tracking (RFC-010)
 
     @property
@@ -281,7 +260,9 @@ class LLMTeam:
         complexity: str = "medium",
     ) -> "CostEstimate":
         """
-        Estimate cost for a run (RFC-008).
+        Estimate cost for a run.
+
+        RFC-021: Uses agent's own model parameters for estimation.
 
         Args:
             input_data: Optional input data (for future token estimation)
@@ -298,7 +279,7 @@ class LLMTeam:
 
         estimator = CostEstimator()
 
-        # If we have agents, use detailed estimation
+        # RFC-021: Use detailed estimation based on agent models
         if self._agents:
             agents_config = [
                 {
@@ -307,16 +288,10 @@ class LLMTeam:
                 }
                 for agent in self._agents.values()
             ]
-            return estimator.estimate_detailed(
-                quality=self.quality,
-                agents=agents_config,
-            )
+            return estimator.estimate_from_agents(agents_config)
 
-        # Otherwise use simple estimation
-        return estimator.estimate(
-            quality=self.quality,
-            complexity=complexity,
-        )
+        # No agents - estimate based on default model
+        return estimator.estimate_for_model(self._model, complexity)
 
     # Lifecycle (RFC-014)
 
@@ -366,11 +341,11 @@ class LLMTeam:
         self,
         input_data: Dict[str, Any],
         run_id: Optional[str] = None,
-        quality: Optional[Union[int, str]] = None,
-        importance: Optional[str] = None,
     ) -> RunResult:
         """
         Execute team.
+
+        RFC-021: Quality parameters removed. Agents use their configured models.
 
         In PASSIVE mode: Converts agents to SegmentDefinition, delegates to SegmentRunner.
         In ROUTER mode: Orchestrator decides which agent runs next.
@@ -378,8 +353,6 @@ class LLMTeam:
         Args:
             input_data: Input data for execution
             run_id: Optional run identifier
-            quality: Override quality for this run (0-100 or preset) (RFC-008)
-            importance: Task importance ("high", "medium", "low") adjusts quality
 
         Returns:
             RunResult with output and metadata
@@ -389,27 +362,6 @@ class LLMTeam:
         run_id = run_id or str(uuid.uuid4())
         self._current_run_id = run_id
         started_at = datetime.utcnow()
-
-        # Determine effective quality (RFC-008)
-        effective_quality = self.quality
-        if quality is not None:
-            effective_quality = QualityManager(quality).quality
-        elif importance is not None:
-            effective_quality = self._quality_manager.with_importance(importance)
-
-        # RFC-019: Pre-flight budget check with quality-based cost estimate
-        if self._budget_manager and self._budget_manager._budget:
-            q_manager = QualityManager(effective_quality)
-            estimated_min, estimated_max = q_manager.estimate_cost("medium")
-            current_cost = self._cost_tracker.current_cost if self._cost_tracker else 0
-            budget_limit = self._budget_manager._budget.max_cost
-
-            if current_cost + estimated_min > budget_limit:
-                return RunResult(
-                    success=False,
-                    status=RunStatus.FAILED,
-                    error=f"Pre-flight budget check failed: estimated cost ${estimated_min:.4f} would exceed budget limit ${budget_limit:.4f} (current: ${current_cost:.4f})",
-                )
 
         if not self._agents:
             return RunResult(
@@ -441,9 +393,7 @@ class LLMTeam:
         try:
             # Check if ROUTER mode is enabled
             if self.is_router_mode:
-                result = await self._run_router_mode(
-                    input_data, run_id, started_at, effective_quality
-                )
+                result = await self._run_router_mode(input_data, run_id, started_at)
             else:
                 result = await self._run_canvas_mode(input_data, run_id, started_at)
 
@@ -496,11 +446,11 @@ class LLMTeam:
         self,
         input_data: Dict[str, Any],
         run_id: Optional[str] = None,
-        quality: Optional[Union[int, str]] = None,
-        importance: Optional[str] = None,
     ) -> AsyncIterator["StreamEvent"]:
         """
         Execute team with streaming events (RFC-011).
+
+        RFC-021: Quality parameters removed. Agents use their configured models.
 
         Yields StreamEvent objects during execution for real-time progress.
         Only supported in ROUTER mode.
@@ -508,8 +458,6 @@ class LLMTeam:
         Args:
             input_data: Input data for execution
             run_id: Optional run identifier
-            quality: Override quality for this run (0-100 or preset) (RFC-008/019)
-            importance: Task importance ("high", "medium", "low") adjusts quality
 
         Yields:
             StreamEvent objects (RUN_STARTED, AGENT_STARTED, AGENT_COMPLETED, etc.)
@@ -528,13 +476,6 @@ class LLMTeam:
 
         run_id = run_id or str(uuid.uuid4())
         self._current_run_id = run_id
-
-        # RFC-019: Determine effective quality (same logic as run())
-        effective_quality = self.quality
-        if quality is not None:
-            effective_quality = QualityManager(quality).quality
-        elif importance is not None:
-            effective_quality = self._quality_manager.with_importance(importance)
 
         if not self._agents:
             yield StreamEvent(
@@ -569,20 +510,25 @@ class LLMTeam:
         run_cost = None
 
         try:
-            # Use shared router_loop (RFC-019 TASK-Q-11)
+            # Use shared router_loop (RFC-021: quality removed)
             async for event in router_loop(
                 agents=self._agents,
                 orchestrator=self._orchestrator,
                 input_data=input_data,
                 run_id=run_id,
-                effective_quality=effective_quality,
                 cost_tracker=self._cost_tracker,
                 budget_manager=self._budget_manager,
                 default_model=self._model,
                 collect_tool_events=True,  # Stream needs tool events
             ):
                 # Map RouterEvent to StreamEvent
-                if event.type == RouterEventType.AGENT_STARTED:
+                if event.type == RouterEventType.USER_INPUT:
+                    yield StreamEvent(
+                        type=StreamEventType.USER_INPUT,
+                        data=event.data,
+                        run_id=run_id,
+                    )
+                elif event.type == RouterEventType.AGENT_STARTED:
                     yield StreamEvent(
                         type=StreamEventType.AGENT_STARTED,
                         data=event.data,
@@ -635,7 +581,13 @@ class LLMTeam:
                     final_state = event.data
                     if final_state.get("error"):
                         error_msg = final_state["error"]
-                # AGENT_SELECTED is internal, not yielded to stream
+                elif event.type == RouterEventType.AGENT_SELECTED:
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_SELECTED,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
 
         except Exception as e:
             error_msg = str(e)
@@ -735,22 +687,17 @@ class LLMTeam:
         input_data: Dict[str, Any],
         run_id: str,
         started_at,
-        effective_quality: Optional[int] = None,
     ) -> RunResult:
         """
         Run team in Router mode (ACTIVE orchestrator).
 
+        RFC-021: Quality removed. Agents use their configured models.
+
         Orchestrator decides which agent runs next.
         For simple triage: ONE agent is selected and runs once.
-
-        RFC-019: effective_quality is passed to agents via context.
-        RFC-019 TASK-Q-11: Uses shared router_loop() to avoid duplication.
         """
         from datetime import datetime
         from llmteam.team.router import router_loop, RouterEventType
-
-        # Use quality from parameter or team default
-        quality = effective_quality if effective_quality is not None else self.quality
 
         # Consume router loop events
         final_state = None
@@ -759,7 +706,6 @@ class LLMTeam:
             orchestrator=self._orchestrator,
             input_data=input_data,
             run_id=run_id,
-            effective_quality=quality,
             cost_tracker=self._cost_tracker,
             budget_manager=self._budget_manager,
             default_model=self._model,
@@ -1167,27 +1113,25 @@ class LLMTeam:
     # Serialization
 
     def to_config(self) -> Dict[str, Any]:
-        """Export team configuration."""
+        """Export team configuration. RFC-021: quality removed."""
         return {
             "team_id": self.team_id,
             "agents": [agent.to_dict() for agent in self._agents.values()],
             "flow": self._flow,
             "model": self._model,
             "context_mode": self._context_mode.value,
-            "quality": self.quality,
             "max_cost_per_run": self._max_cost_per_run,
         }
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "LLMTeam":
-        """Create team from configuration."""
+        """Create team from configuration. RFC-021: quality removed."""
         return cls(
             team_id=config["team_id"],
             agents=config.get("agents", []),
             flow=config.get("flow", "sequential"),
             model=config.get("model", "gpt-4o-mini"),
             context_mode=ContextMode(config.get("context_mode", "shared")),
-            quality=config.get("quality", 50),
             max_cost_per_run=config.get("max_cost_per_run"),
         )
 

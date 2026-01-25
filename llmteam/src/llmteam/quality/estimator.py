@@ -181,3 +181,92 @@ class CostEstimator:
             return max(0, min(100, int(quality)))
         except ZeroDivisionError:
             return 50
+
+    def estimate_from_agents(
+        self,
+        agents: List[Dict[str, Any]],
+        avg_input_tokens: int = 500,
+        avg_output_tokens: int = 300,
+    ) -> CostEstimate:
+        """
+        RFC-021: Estimate cost from agent configurations without quality.
+
+        Args:
+            agents: List of agent configurations with 'model' key
+            avg_input_tokens: Average input tokens per call
+            avg_output_tokens: Average output tokens per call
+
+        Returns:
+            CostEstimate with breakdown by agent
+        """
+        breakdown = {}
+        total_min = 0.0
+        total_max = 0.0
+
+        for agent in agents:
+            model = agent.get("model", "gpt-4o-mini")
+            role = agent.get("role", "agent")
+
+            pricing = self.MODEL_PRICING.get(
+                model,
+                self.MODEL_PRICING.get("gpt-4o-mini", {"input": 0.00015, "output": 0.0006})
+            )
+
+            # Calculate cost per call
+            input_cost = (avg_input_tokens / 1000) * pricing["input"]
+            output_cost = (avg_output_tokens / 1000) * pricing["output"]
+            agent_cost = input_cost + output_cost
+
+            breakdown[role] = agent_cost
+            total_min += agent_cost * 0.7
+            total_max += agent_cost * 1.3
+
+        return CostEstimate(
+            min_cost=round(total_min, 4),
+            max_cost=round(total_max, 4),
+            quality=0,  # RFC-021: Quality not used
+            task_complexity="from_agents",
+            breakdown=breakdown,
+        )
+
+    def estimate_for_model(
+        self,
+        model: str,
+        complexity: str = "medium",
+        avg_input_tokens: int = 500,
+        avg_output_tokens: int = 300,
+    ) -> CostEstimate:
+        """
+        RFC-021: Estimate cost for a single model without quality.
+
+        Args:
+            model: Model name
+            complexity: Task complexity
+            avg_input_tokens: Average input tokens per call
+            avg_output_tokens: Average output tokens per call
+
+        Returns:
+            CostEstimate
+        """
+        pricing = self.MODEL_PRICING.get(
+            model,
+            self.MODEL_PRICING.get("gpt-4o-mini", {"input": 0.00015, "output": 0.0006})
+        )
+
+        # Calculate cost per call
+        input_cost = (avg_input_tokens / 1000) * pricing["input"]
+        output_cost = (avg_output_tokens / 1000) * pricing["output"]
+        base_cost = input_cost + output_cost
+
+        # Complexity multiplier
+        multipliers = {"simple": 0.7, "medium": 1.0, "complex": 1.5}
+        multiplier = multipliers.get(complexity, 1.0)
+
+        estimated = base_cost * multiplier
+
+        return CostEstimate(
+            min_cost=round(estimated * 0.7, 4),
+            max_cost=round(estimated * 1.3, 4),
+            quality=0,  # RFC-021: Quality not used
+            task_complexity=complexity,
+        )

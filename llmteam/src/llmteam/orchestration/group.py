@@ -3,7 +3,7 @@ GroupOrchestrator for multi-team coordination.
 
 RFC-004: Separate class for coordinating multiple LLMTeams.
 RFC-009: Group Architecture Unification with bi-directional context.
-RFC-019: Quality integration via QualityAwareLLMMixin.
+RFC-021: Uses explicit model/temperature instead of QualityAwareLLMMixin.
 """
 
 import asyncio
@@ -21,7 +21,6 @@ from llmteam.orchestration.models import (
     EscalationResponse,
     GroupEscalationAction,
 )
-from llmteam.quality import QualityManager, QualityAwareLLMMixin
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
@@ -116,13 +115,13 @@ class GroupRole(Enum):
     """
 
 
-class GroupOrchestrator(QualityAwareLLMMixin):
+class GroupOrchestrator:
     """
     Orchestrator for a group of teams.
 
     RFC-004: Coordinates multiple LLMTeams and collects reports.
     RFC-009: Unified group coordination with bi-directional context.
-    RFC-019: Quality-aware LLM calls via QualityAwareLLMMixin.
+    RFC-021: Uses explicit model/temperature instead of quality.
 
     Roles:
     - REPORT_COLLECTOR: Passive report collection (default)
@@ -135,7 +134,8 @@ class GroupOrchestrator(QualityAwareLLMMixin):
         orch = GroupOrchestrator(
             group_id="my_group",
             role=GroupRole.COORDINATOR,
-            quality=70,
+            model="gpt-4o",
+            temperature=0.3,
         )
         orch.add_team(team1, role=TeamRole.LEADER)
         orch.add_team(team2, role=TeamRole.MEMBER)
@@ -147,31 +147,30 @@ class GroupOrchestrator(QualityAwareLLMMixin):
         self,
         group_id: Optional[str] = None,
         role: GroupRole = GroupRole.REPORT_COLLECTOR,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4o",
+        temperature: float = 0.3,
         max_iterations: int = 10,
         max_escalation_depth: int = 3,
-        quality: int = 50,
     ):
         """
         Initialize GroupOrchestrator.
 
+        RFC-021: Uses explicit model/temperature instead of quality.
+
         Args:
             group_id: Unique group identifier (auto-generated if None).
             role: Orchestrator role (default: REPORT_COLLECTOR).
-            model: LLM model (deprecated, use quality instead).
+            model: LLM model for routing/arbitration decisions.
+            temperature: Temperature for routing decisions (low for determinism).
             max_iterations: Max routing iterations (for ROUTER).
             max_escalation_depth: Max escalation depth to prevent loops.
-            quality: Quality level 0-100 (RFC-019). Default: 50.
         """
         self.group_id = group_id or f"group_{uuid.uuid4().hex[:8]}"
         self._role = role
-        self._model = model  # Deprecated: use quality instead
+        self._model = model
+        self._temperature = temperature
         self._max_iterations = max_iterations
         self._max_escalation_depth = max_escalation_depth
-
-        # RFC-019: Quality management
-        self._quality = quality
-        self._quality_manager = QualityManager(quality)
 
         # Teams (RFC-009: with roles)
         self._teams: Dict[str, "LLMTeam"] = {}
@@ -184,25 +183,8 @@ class GroupOrchestrator(QualityAwareLLMMixin):
         self._escalation_count: int = 0
         self._current_run_id: Optional[str] = None
 
-        # LLM (lazy init) - RFC-019: Now uses quality-aware model
+        # LLM (lazy init)
         self._llm = None
-
-    # === RFC-019: QualityAwareLLMMixin implementation ===
-
-    def _get_quality_manager(self) -> QualityManager:
-        """Get QualityManager instance."""
-        return self._quality_manager
-
-    @property
-    def quality(self) -> int:
-        """Get current quality level."""
-        return self._quality_manager.quality
-
-    @quality.setter
-    def quality(self, value: int) -> None:
-        """Set quality level."""
-        self._quality_manager.quality = value
-        self._quality = value
 
     # === Team Management (RFC-009: with roles) ===
 
@@ -903,8 +885,7 @@ class GroupOrchestrator(QualityAwareLLMMixin):
         """
         Get or create LLM provider.
 
-        RFC-019: Now uses quality-based model from QualityManager.
-        Deprecated: Use _quality_complete() or _get_quality_llm() instead.
+        RFC-021: Uses explicit model from config.
         """
         if self._llm is not None:
             return self._llm
@@ -912,9 +893,8 @@ class GroupOrchestrator(QualityAwareLLMMixin):
         try:
             from llmteam.providers import OpenAIProvider
 
-            # RFC-019: Use quality-based model
-            model = self._quality_manager.get_model("simple")
-            self._llm = OpenAIProvider(model=model)
+            # RFC-021: Use explicit model from config
+            self._llm = OpenAIProvider(model=self._model)
             return self._llm
         except (ImportError, Exception):
             return None
