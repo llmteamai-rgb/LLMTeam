@@ -231,7 +231,7 @@ class TestLLMAgentToolLoop:
             ),
         ])
 
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         result = await agent._execute({"query": "weather in London"}, {})
 
@@ -259,7 +259,7 @@ class TestLLMAgentToolLoop:
             tokens_used=20,
             finish_reason="stop",
         ))
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         result = await agent._execute({"query": "hi"}, {})
 
@@ -286,7 +286,7 @@ class TestLLMAgentToolLoop:
             tokens_used=10,
             finish_reason="tool_calls",
         ))
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         result = await agent._execute({"query": "loop"}, {})
 
@@ -316,7 +316,7 @@ class TestLLMAgentToolLoop:
             ),
             LLMResponse(content="pong!", tokens_used=5, finish_reason="stop"),
         ])
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         events = []
 
@@ -358,7 +358,7 @@ class TestLLMAgentToolLoop:
             ),
             LLMResponse(content="Tool failed, sorry.", tokens_used=10, finish_reason="stop"),
         ])
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         result = await agent._execute({"query": "fail"}, {})
 
@@ -423,7 +423,7 @@ class TestStreamToolEvents:
             ),
             LLMResponse(content="The answer is 42.", tokens_used=10, finish_reason="stop"),
         ])
-        agent._get_provider = lambda: mock_provider
+        agent._get_provider = lambda model=None: mock_provider
 
         events = []
         async for event in team.stream({"query": "calculate"}):

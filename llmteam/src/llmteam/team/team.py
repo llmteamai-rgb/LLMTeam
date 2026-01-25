@@ -427,7 +427,9 @@ class LLMTeam:
         try:
             # Check if ROUTER mode is enabled
             if self.is_router_mode:
-                result = await self._run_router_mode(input_data, run_id, started_at)
+                result = await self._run_router_mode(
+                    input_data, run_id, started_at, effective_quality
+                )
             else:
                 result = await self._run_canvas_mode(input_data, run_id, started_at)
 
@@ -594,6 +596,11 @@ class LLMTeam:
                     last_agent = agents_called[-1] if agents_called else None
                     if last_agent and last_agent in outputs:
                         context["previous"] = outputs[last_agent]
+
+                # RFC-019: Inject quality context for agent
+                context["_quality"] = self.quality
+                context["_quality_model"] = self._quality_manager.get_model("medium")
+                context["_quality_params"] = self._quality_manager.get_generation_params()
 
                 # Execute agent
                 result = await agent.execute(
@@ -790,12 +797,15 @@ class LLMTeam:
         input_data: Dict[str, Any],
         run_id: str,
         started_at,
+        effective_quality: Optional[int] = None,
     ) -> RunResult:
         """
         Run team in Router mode (ACTIVE orchestrator).
 
         Orchestrator decides which agent runs next.
         For simple triage: ONE agent is selected and runs once.
+
+        RFC-019: effective_quality is passed to agents via context.
         """
         from datetime import datetime
 
@@ -845,6 +855,13 @@ class LLMTeam:
                 last_agent = agents_called[-1] if agents_called else None
                 if last_agent and last_agent in outputs:
                     context["previous"] = outputs[last_agent]
+
+            # RFC-019: Inject quality context for agent
+            if effective_quality is not None:
+                q_manager = QualityManager(effective_quality)
+                context["_quality"] = effective_quality
+                context["_quality_model"] = q_manager.get_model("medium")
+                context["_quality_params"] = q_manager.get_generation_params()
 
             # Execute agent
             result = await agent.execute(

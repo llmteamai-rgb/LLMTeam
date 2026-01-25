@@ -114,6 +114,9 @@ class LLMAgent(BaseAgent):
         3. If response is text → return as output
         4. Stops after max_tool_rounds
 
+        RFC-019: Reads quality context (_quality_model, _quality_params)
+        injected by team.run() to override model/temperature/max_tokens.
+
         Args:
             input_data: Input data from team.run()
             context: Context from mailbox
@@ -124,8 +127,14 @@ class LLMAgent(BaseAgent):
         # Format prompt
         formatted_prompt = self._format_prompt(input_data, context)
 
+        # RFC-019: Resolve effective model/params from quality context
+        effective_model = context.get("_quality_model", self.model)
+        quality_params = context.get("_quality_params", {})
+        effective_temperature = quality_params.get("temperature", self.temperature)
+        effective_max_tokens = quality_params.get("max_tokens", self.max_tokens)
+
         # Get LLM provider from team's runtime
-        provider = self._get_provider()
+        provider = self._get_provider(effective_model)
 
         if provider is None:
             # Fallback: return formatted prompt as output (for testing)
@@ -134,25 +143,35 @@ class LLMAgent(BaseAgent):
                 output_key=self.output_key,
                 success=True,
                 tokens_used=0,
-                model=self.model,
+                model=effective_model,
             )
 
         # Check if we have tools configured
         has_tools = self._tool_executor is not None and len(self._tool_executor.list_tools()) > 0
 
         if has_tools:
-            return await self._execute_with_tools(formatted_prompt, provider)
+            return await self._execute_with_tools(
+                formatted_prompt, provider, effective_model,
+                effective_temperature, effective_max_tokens,
+            )
         else:
-            return await self._execute_simple(formatted_prompt, provider)
+            return await self._execute_simple(
+                formatted_prompt, provider, effective_model,
+                effective_temperature, effective_max_tokens,
+            )
 
-    async def _execute_simple(self, formatted_prompt: str, provider: Any) -> AgentResult:
+    async def _execute_simple(
+        self, formatted_prompt: str, provider: Any,
+        model: str = "", temperature: float = 0.7, max_tokens: int = 1000,
+    ) -> AgentResult:
         """Simple execution without tools."""
+        model = model or self.model
         response = await provider.complete(
             prompt=formatted_prompt,
             system_prompt=self.system_prompt,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         return AgentResult(
@@ -160,15 +179,20 @@ class LLMAgent(BaseAgent):
             output_key=self.output_key,
             success=True,
             tokens_used=getattr(response, "tokens_used", 0) if not isinstance(response, str) else 0,
-            model=self.model,
+            model=model,
         )
 
-    async def _execute_with_tools(self, formatted_prompt: str, provider: Any) -> AgentResult:
+    async def _execute_with_tools(
+        self, formatted_prompt: str, provider: Any,
+        model: str = "", temperature: float = 0.7, max_tokens: int = 1000,
+    ) -> AgentResult:
         """
         RFC-016: Execute with tool calling loop.
 
         Loop: prompt → LLM → tool_calls → execute → LLM → ... → final text.
         """
+        model = model or self.model
+
         # Build initial messages
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
@@ -186,8 +210,8 @@ class LLMAgent(BaseAgent):
             llm_response: "LLMResponse" = await provider.complete_with_tools(
                 messages=messages,
                 tools=tool_schemas,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
 
             total_tokens += llm_response.tokens_used
@@ -199,7 +223,7 @@ class LLMAgent(BaseAgent):
                     output_key=self.output_key,
                     success=True,
                     tokens_used=total_tokens,
-                    model=llm_response.model or self.model,
+                    model=llm_response.model or model,
                     context_payload={
                         "tool_calls_made": tool_calls_made,
                         "tool_rounds": round_num,
@@ -265,7 +289,7 @@ class LLMAgent(BaseAgent):
             output_key=self.output_key,
             success=True,
             tokens_used=total_tokens,
-            model=self.model,
+            model=model,
             context_payload={
                 "tool_calls_made": tool_calls_made,
                 "tool_rounds": self.max_tool_rounds,
@@ -282,16 +306,21 @@ class LLMAgent(BaseAgent):
         if self._event_callback:
             await self._event_callback(event_type, data, self.agent_id)
 
-    def _get_provider(self):
-        """Get LLM provider from runtime context."""
+    def _get_provider(self, model: Optional[str] = None):
+        """Get LLM provider from runtime context.
+
+        Args:
+            model: Model name to resolve. Defaults to self.model.
+        """
+        resolve_model = model or self.model
         if hasattr(self._team, "_runtime") and self._team._runtime:
             runtime = self._team._runtime
             try:
                 # RuntimeContext uses resolve_llm, StepContext uses get_llm
                 if hasattr(runtime, "resolve_llm"):
-                    return runtime.resolve_llm(self.model)
+                    return runtime.resolve_llm(resolve_model)
                 elif hasattr(runtime, "get_llm"):
-                    return runtime.get_llm(self.model)
+                    return runtime.get_llm(resolve_model)
             except Exception:
                 # Try "default" as fallback
                 try:
