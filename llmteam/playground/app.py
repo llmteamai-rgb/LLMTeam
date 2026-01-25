@@ -191,9 +191,8 @@ def render_agent_builder():
             step=100,
         )
 
-        # Tools selection
-        available_tools = ["web_search", "http_fetch", "json_extract", "text_summarize", "code_eval"]
-        tools = st.multiselect("Tools", options=available_tools)
+        # Tools selection (informational - tools require ToolDefinition objects)
+        st.info("💡 Tools require ToolDefinition objects. Use code to add tools to agents.")
 
         if st.button("➕ Add Agent", type="primary"):
             if not role:
@@ -209,8 +208,7 @@ def render_agent_builder():
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                 }
-                if tools:
-                    agent_config["tools"] = tools
+                # Note: tools are not included as they require ToolDefinition objects
 
                 st.session_state.agents.append(agent_config)
                 st.success(f"Added agent: {role}")
