@@ -307,12 +307,14 @@ class LLMAgent(BaseAgent):
             await self._event_callback(event_type, data, self.agent_id)
 
     def _get_provider(self, model: Optional[str] = None):
-        """Get LLM provider from runtime context.
+        """Get LLM provider from runtime context or create default.
 
         Args:
             model: Model name to resolve. Defaults to self.model.
         """
         resolve_model = model or self.model
+
+        # Try runtime context first
         if hasattr(self._team, "_runtime") and self._team._runtime:
             runtime = self._team._runtime
             try:
@@ -330,4 +332,23 @@ class LLMAgent(BaseAgent):
                         return runtime.get_llm("default")
                 except Exception:
                     pass
-        return None
+
+        # Fallback: auto-create OpenAI provider if API key is available
+        return self._create_default_provider(resolve_model)
+
+    def _create_default_provider(self, model: str):
+        """Create default OpenAI provider if API key is available."""
+        import os
+
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return None
+
+        try:
+            from llmteam.providers import OpenAIProvider
+            return OpenAIProvider(api_key=api_key, model=model)
+        except ImportError:
+            # OpenAI provider not available
+            return None
+        except Exception:
+            return None
