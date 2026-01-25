@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.0] - 2026-01-25
+
+### Added
+
+- **RFC-019: Quality Integration** - Quality-aware LLM calls across all components:
+  - `QualityAwareLLMMixin` - Mixin for quality-aware LLM calls with caching
+  - `_get_quality_llm()` - Get LLM provider based on quality and complexity
+  - `_get_quality_params()` - Get generation params (temperature, max_tokens)
+  - `_quality_complete()` - Quality-aware completion with cost tracking
+
+- **Quality Integration in Components**:
+  - `ConfigurationSession` - Quality-aware task analysis and team suggestion
+  - `TeamOrchestrator` - Quality-aware routing decisions
+  - `GroupOrchestrator` - Quality-aware group coordination
+  - `DynamicTeamBuilder` - Quality-aware blueprint generation
+
+- **Pre-flight Budget Check** (TASK-Q-12):
+  - `LLMTeam.run()` now estimates cost before execution
+  - Fails fast if estimated cost exceeds `max_cost_per_run`
+  - Uses quality level for accurate estimation
+
+- **Router Loop Deduplication** (TASK-Q-11):
+  - `router_loop()` - Shared async generator for router iteration
+  - `RouterEventType` - Internal event types (AGENT_SELECTED, TOOL_CALL, etc.)
+  - `RouterEvent` - Event dataclass with type, agent_id, data
+  - `RouterState` - Shared state tracking (outputs, agents_called, iterations)
+  - Both `stream()` and `_run_router_mode()` now use `router_loop()`
+  - ~156 lines of duplicate code removed
+
+- **Streaming Quality Parameters** (TASK-Q-10):
+  - `LLMTeam.stream(quality=)` - Override quality for streaming
+  - `LLMTeam.stream(importance=)` - Importance-based quality boost
+
+### Changed
+
+- **Version**: Updated to 5.5.0
+- `_run_router_mode()` refactored to consume `router_loop()` generator
+- `stream()` refactored to map `RouterEvent` to `StreamEvent`
+
+---
+
 ## [5.3.0] - 2026-01-24
 
 ### Added
@@ -889,6 +930,12 @@ result = await orchestrator.orchestrate(run_id, input_data)
 - Core pipeline execution framework
 - Basic agent context management
 
+[5.5.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v5.3.0...v5.5.0
+[5.3.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v5.2.0...v5.3.0
+[5.2.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v5.0.0...v5.2.0
+[5.0.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v4.1.0...v5.0.0
+[4.1.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v4.0.0...v4.1.0
+[4.0.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.3.0...v3.0.0
 [2.3.0]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/llmteamai-rgb/LLMTeam/compare/v2.2.0...v2.2.1
