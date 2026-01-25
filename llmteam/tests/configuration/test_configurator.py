@@ -339,8 +339,12 @@ class TestConfigurationSession:
 
     async def test_analyze(self):
         """Test task analysis."""
+        from llmteam.quality import QualityManager
+
         mock_team = MagicMock()
         mock_team.team_id = "test"
+        mock_team.quality = 50
+        mock_team._quality_manager = QualityManager(50)
 
         session = ConfigurationSession(
             session_id="session_123",
@@ -348,10 +352,10 @@ class TestConfigurationSession:
             task="Generate posts",
         )
 
-        # Mock LLM provider
-        mock_llm = MagicMock()
-        mock_llm.complete = AsyncMock(return_value='{"main_goal": "Generate posts", "input_type": "text", "output_type": "text", "sub_tasks": ["write"], "complexity": "simple"}')
-        session._llm_provider = mock_llm
+        # Mock _quality_complete for RFC-019
+        session._quality_complete = AsyncMock(
+            return_value='{"main_goal": "Generate posts", "input_type": "text", "output_type": "text", "sub_tasks": ["write"], "complexity": "simple"}'
+        )
 
         analysis = await session.analyze()
 
@@ -360,8 +364,12 @@ class TestConfigurationSession:
 
     async def test_suggest(self):
         """Test team suggestion."""
+        from llmteam.quality import QualityManager
+
         mock_team = MagicMock()
         mock_team.team_id = "test"
+        mock_team.quality = 50
+        mock_team._quality_manager = QualityManager(50)
 
         session = ConfigurationSession(
             session_id="session_123",
@@ -378,10 +386,10 @@ class TestConfigurationSession:
             complexity="simple",
         )
 
-        # Mock LLM provider
-        mock_llm = MagicMock()
-        mock_llm.complete = AsyncMock(return_value='{"agents": [{"role": "writer", "type": "llm", "purpose": "Write", "prompt_template": "Write: {input}", "reasoning": "needed"}], "flow": "writer", "reasoning": "simple task"}')
-        session._llm_provider = mock_llm
+        # Mock _quality_complete for RFC-019
+        session._quality_complete = AsyncMock(
+            return_value='{"agents": [{"role": "writer", "type": "llm", "purpose": "Write", "prompt_template": "Write: {input}", "reasoning": "needed"}], "flow": "writer", "reasoning": "simple task"}'
+        )
 
         result = await session.suggest()
 

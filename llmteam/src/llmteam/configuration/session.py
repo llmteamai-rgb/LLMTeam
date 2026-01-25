@@ -2,6 +2,8 @@
 ConfigurationSession for CONFIGURATOR mode (RFC-005).
 
 Provides an interactive session for configuring LLMTeam via LLM assistance.
+
+RFC-019: Quality-aware LLM calls via QualityAwareLLMMixin.
 """
 
 import json
@@ -18,19 +20,20 @@ from llmteam.configuration.models import (
     TestRunResult,
 )
 from llmteam.configuration.prompts import ConfiguratorPrompts
+from llmteam.quality import QualityManager, QualityAwareLLMMixin
 
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
     from llmteam.runtime import LLMProvider
-    from llmteam.quality import QualityManager
 
 
 @dataclass
-class ConfigurationSession:
+class ConfigurationSession(QualityAwareLLMMixin):
     """
     Session for configuring a team via CONFIGURATOR mode.
 
     RFC-005: Allows interactive team configuration with LLM assistance.
+    RFC-019: Quality-aware LLM calls.
 
     Usage:
         team = LLMTeam(team_id="content")
@@ -107,18 +110,27 @@ class ConfigurationSession:
         """
         Analyze the task via LLM.
 
+        RFC-019: Uses quality-aware LLM.
+
         Returns:
             TaskAnalysis with extracted information.
         """
         self.state = SessionState.ANALYZING
 
-        llm = self._get_llm()
+        # RFC-019: Include quality context in prompt
         prompt = ConfiguratorPrompts.TASK_ANALYSIS.format(
             task=self.task,
             constraints=json.dumps(self.constraints, ensure_ascii=False),
+            quality=self.quality,
+            quality_label=self._get_quality_label(),
         )
 
-        response = await llm.complete(prompt)
+        # RFC-019: Use quality-aware completion
+        response = await self._quality_complete(
+            prompt=prompt,
+            system_prompt="You are a task analyzer helping configure an AI agent team.",
+            complexity="medium",
+        )
         data = self._parse_json(response)
 
         self.task_analysis = TaskAnalysis(
@@ -136,6 +148,8 @@ class ConfigurationSession:
         """
         Suggest team configuration via LLM.
 
+        RFC-019: Uses quality-aware LLM.
+
         Returns:
             Dictionary with agents, flow, and reasoning.
         """
@@ -144,12 +158,31 @@ class ConfigurationSession:
         if not self.task_analysis:
             await self.analyze()
 
-        llm = self._get_llm()
+        # RFC-019: Include quality context in prompt
+        manager = self._get_quality_manager()
+        pipeline_depth = manager.get_pipeline_depth()
+        min_agents, max_agents = manager.get_agent_count_range()
+
         prompt = ConfiguratorPrompts.TEAM_SUGGESTION.format(
-            task_analysis=json.dumps(self.task_analysis.to_dict(), indent=2, ensure_ascii=False),
+            task_analysis=json.dumps(
+                self.task_analysis.to_dict(),
+                indent=2,
+                ensure_ascii=False,
+            ),
+            quality=self.quality,
+            quality_label=self._get_quality_label(),
+            pipeline_depth=pipeline_depth.value,
+            min_agents=min_agents,
+            max_agents=max_agents,
+            recommended_model=manager.get_model("medium"),
         )
 
-        response = await llm.complete(prompt)
+        # RFC-019: Use quality-aware completion
+        response = await self._quality_complete(
+            prompt=prompt,
+            system_prompt="You are a team architect designing AI agent pipelines.",
+            complexity="complex",  # Team design is complex
+        )
         data = self._parse_json(response)
 
         # Parse agent suggestions
@@ -162,11 +195,14 @@ class ConfigurationSession:
         self.suggestion_reasoning = data.get("reasoning", "")
 
         # Initialize current config from suggestions
+        # RFC-019: Use quality-based model for agents
+        complexity = self.task_analysis.complexity if self.task_analysis else "medium"
         self.current_agents = [
             {
                 "role": agent.role,
                 "type": agent.type,
                 "prompt": agent.prompt_template,
+                "model": manager.get_model(complexity),
             }
             for agent in self.suggested_agents
         ]
@@ -283,6 +319,34 @@ class ConfigurationSession:
         if self._quality is not None:
             return self._quality
         return self.team.quality
+
+    # === RFC-019: QualityAwareLLMMixin implementation ===
+
+    def _get_quality_manager(self) -> QualityManager:
+        """
+        Get QualityManager from team or create temporary one.
+
+        RFC-019: Returns session-specific manager if quality override is set,
+        otherwise returns team's manager.
+        """
+        if self._quality is not None:
+            # Session has explicit quality override
+            return QualityManager(self._quality)
+        return self.team._quality_manager
+
+    def _get_quality_label(self) -> str:
+        """Get human-readable quality label for prompts."""
+        q = self.quality
+        if q >= 85:
+            return "Excellent (best quality, thorough analysis)"
+        elif q >= 70:
+            return "Good (production quality)"
+        elif q >= 50:
+            return "Balanced (good for most tasks)"
+        elif q >= 30:
+            return "Economy (fast, basic output)"
+        else:
+            return "Draft (minimal, quick iteration)"
 
     async def preview(self) -> PipelinePreview:
         """
@@ -482,18 +546,27 @@ class ConfigurationSession:
         agent_outputs: Dict[str, Any],
         duration_ms: int,
     ) -> Dict[str, Any]:
-        """Analyze test run via LLM."""
-        llm = self._get_llm()
+        """
+        Analyze test run via LLM.
 
+        RFC-019: Uses quality-aware LLM.
+        """
+        # RFC-019: Include quality in prompt
         prompt = ConfiguratorPrompts.TEST_ANALYSIS.format(
             team_config=json.dumps(self.export_config(), indent=2, ensure_ascii=False),
             test_input=json.dumps(input_data, indent=2, ensure_ascii=False),
             agent_outputs=json.dumps(agent_outputs, indent=2, ensure_ascii=False),
             final_output=json.dumps(output, indent=2, ensure_ascii=False) if isinstance(output, dict) else str(output),
             duration_ms=duration_ms,
+            quality=self.quality,
         )
 
-        response = await llm.complete(prompt)
+        # RFC-019: Use quality-aware completion
+        response = await self._quality_complete(
+            prompt=prompt,
+            system_prompt="You are a QA engineer analyzing test results.",
+            complexity="medium",
+        )
         return self._parse_json(response)
 
     # === Application Methods ===
@@ -559,10 +632,18 @@ class ConfigurationSession:
         ])
 
     def _build_temp_team(self) -> "LLMTeam":
-        """Build a temporary team with current config for testing."""
+        """
+        Build a temporary team with current config for testing.
+
+        RFC-019: Passes quality to temp team.
+        """
         from llmteam.team import LLMTeam
 
-        temp_team = LLMTeam(team_id=f"{self.team.team_id}_test")
+        # RFC-019: Pass quality to temp team
+        temp_team = LLMTeam(
+            team_id=f"{self.team.team_id}_test",
+            quality=self.quality,
+        )
 
         for agent_config in self.current_agents:
             temp_team.add_agent(agent_config)
