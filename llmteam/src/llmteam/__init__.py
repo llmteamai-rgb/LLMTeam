@@ -360,6 +360,8 @@ from llmteam.agents import (
     KAGResult,
     # Factory
     AgentFactory,
+    # RFC-025: RAGAgent for "out of the box" usage
+    RAGAgent,
     # Presets
     create_orchestrator_config,
     create_group_orchestrator_config,
@@ -381,6 +383,34 @@ from llmteam.agents import (
     CircuitBreakerPolicy,
     RetryMetrics,
     AgentRetryExecutor,
+)
+
+# RFC-025: Document processing for RAG
+from llmteam.documents import (
+    Document,
+    Chunk,
+    BaseLoader,
+    TextLoader,
+    AutoLoader,
+    load_document,
+    load_documents,
+    BaseChunker,
+    RecursiveChunker,
+    SentenceChunker,
+)
+
+# RFC-025: Embeddings for RAG
+from llmteam.embeddings import (
+    BaseEmbedding,
+    OpenAIEmbedding,
+    EmbeddingCache,
+)
+
+# RFC-025: Vector stores for RAG
+from llmteam.vectorstores import (
+    BaseVectorStore,
+    SearchResult,
+    InMemoryVectorStore,
 )
 
 # v4.0.0: LLMTeam and LLMGroup
@@ -761,12 +791,36 @@ __all__ = [
     "RAGResult",
     "KAGResult",
     "AgentFactory",
+    # RFC-025: RAGAgent for "out of the box" usage
+    "RAGAgent",
     "create_orchestrator_config",
     "create_group_orchestrator_config",
     "create_summarizer_config",
     "create_reviewer_config",
     "create_rag_config",
     "create_kag_config",
+
+    # RFC-025: Document processing for RAG
+    "Document",
+    "Chunk",
+    "BaseLoader",
+    "TextLoader",
+    "AutoLoader",
+    "load_document",
+    "load_documents",
+    "BaseChunker",
+    "RecursiveChunker",
+    "SentenceChunker",
+
+    # RFC-025: Embeddings for RAG
+    "BaseEmbedding",
+    "OpenAIEmbedding",
+    "EmbeddingCache",
+
+    # RFC-025: Vector stores for RAG
+    "BaseVectorStore",
+    "SearchResult",
+    "InMemoryVectorStore",
 
     # v4.1.0: Orchestrator
     "AgentReport",

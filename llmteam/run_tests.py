@@ -49,6 +49,10 @@ TEST_MODULES = [
     "testing",      # v2.0.3
     "quality",      # RFC-008
     "builder",      # RFC-021
+    "documents",    # RFC-025
+    "embeddings",   # RFC-025
+    "vectorstores", # RFC-025
+    "agents",       # includes RFC-025 RAG out-of-box tests
 ]
 
 

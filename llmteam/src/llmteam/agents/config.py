@@ -86,10 +86,23 @@ class RAGAgentConfig(AgentConfig):
     # Mode
     mode: AgentMode = AgentMode.NATIVE
 
-    # Native Mode
+    # Native Mode (external vector store)
     vector_store: Optional[str] = None  # "chroma", "faiss", "pinecone", "qdrant"
     collection: str = "default"
     embedding_model: str = "text-embedding-3-small"
+
+    # RFC-025: "Out of the Box" Mode - documents to index
+    documents: Optional[List[str]] = None  # List of file paths
+    texts: Optional[List[str]] = None  # List of raw texts
+    chunks: Optional[List[str]] = None  # Pre-chunked texts
+    directory: Optional[str] = None  # Directory to scan for documents
+
+    # Chunking settings
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+    # Embedding settings
+    embedding_api_key: Optional[str] = None  # For embedding provider
 
     # Proxy Mode
     proxy_endpoint: Optional[str] = None
