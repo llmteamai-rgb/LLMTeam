@@ -221,11 +221,15 @@ class AdaptiveStepConfig:
 
 
 @dataclass
-class RoutingDecision:
+class AdaptiveRoutingDecision:
     """
-    Result of a routing decision.
+    Result of an adaptive routing decision.
 
     Contains target, method used, and optional LLM reasoning.
+    Used by AdaptiveStepHandler for rules-first routing with LLM fallback.
+
+    Note: This is different from agents.orchestrator.AdaptiveRoutingDecision which
+    is used for team orchestrator agent selection.
     """
 
     target: str
@@ -269,7 +273,7 @@ class RoutingDecision:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RoutingDecision":
+    def from_dict(cls, data: Dict[str, Any]) -> "AdaptiveRoutingDecision":
         """Create from dictionary."""
         return cls(
             target=data["target"],
@@ -283,9 +287,9 @@ class RoutingDecision:
         )
 
     @classmethod
-    def from_json(cls, json_str: str, decision_id: str = "") -> "RoutingDecision":
+    def from_json(cls, json_str: str, decision_id: str = "") -> "AdaptiveRoutingDecision":
         """
-        Parse LLM response JSON into RoutingDecision.
+        Parse LLM response JSON into AdaptiveRoutingDecision.
 
         Expected format:
         {"target": "<step_id>", "reasoning": "<why>", "confidence": 0.0-1.0}
@@ -378,10 +382,10 @@ class AdaptiveDecisionEvent:
     @classmethod
     def from_decision(
         cls,
-        decision: RoutingDecision,
+        decision: AdaptiveRoutingDecision,
         step_id: str = "",
     ) -> "AdaptiveDecisionEvent":
-        """Create event from RoutingDecision."""
+        """Create event from AdaptiveRoutingDecision."""
         return cls(
             step_id=step_id,
             decision_id=decision.decision_id,

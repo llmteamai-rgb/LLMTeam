@@ -11,7 +11,7 @@ Version: 6.1.0 (RFC-022: Task Solver Architecture)
     - New: InteractiveSession for conversational task clarification
     - New: AdaptiveStepHandler for rules-first routing with LLM fallback
     - New: AdaptiveStepConfig, RoutingRule, LLMFallbackConfig, RouteOption
-    - New: RoutingDecision, RoutingMethod, AdaptiveDecisionEvent
+    - New: AdaptiveRoutingDecision, RoutingMethod, AdaptiveDecisionEvent
     - New: Hybrid routing mode (deterministic graph + adaptive points)
 
 Version: 5.5.0 (RFC-019: Quality Integration)
@@ -579,7 +579,7 @@ from llmteam.routing import (
     RoutingRule,
     LLMFallbackConfig,
     RouteOption,
-    RoutingDecision,
+    AdaptiveRoutingDecision,
     RoutingMethod,
     AdaptiveDecisionEvent,
     CheckpointConfig,
@@ -1004,7 +1004,7 @@ __all__ = [
     "RoutingRule",
     "LLMFallbackConfig",
     "RouteOption",
-    "RoutingDecision",
+    "AdaptiveRoutingDecision",
     "RoutingMethod",
     "AdaptiveDecisionEvent",
     "CheckpointConfig",

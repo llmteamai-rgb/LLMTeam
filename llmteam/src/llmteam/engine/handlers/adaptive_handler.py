@@ -19,7 +19,7 @@ from llmteam.routing import (
     AdaptiveStepConfig,
     RoutingRule,
     LLMFallbackConfig,
-    RoutingDecision,
+    AdaptiveRoutingDecision,
     RoutingMethod,
     AdaptiveDecisionEvent,
 )
@@ -104,7 +104,7 @@ class AdaptiveStepHandler:
 
         # 4. Default route
         if decision is None and adaptive_config.default_route:
-            decision = RoutingDecision(
+            decision = AdaptiveRoutingDecision(
                 target=adaptive_config.default_route,
                 method=RoutingMethod.DEFAULT,
                 decision_id=decision_id,
@@ -150,7 +150,7 @@ class AdaptiveStepHandler:
         self,
         config: AdaptiveStepConfig,
         input_data: Dict[str, Any],
-    ) -> Optional[RoutingDecision]:
+    ) -> Optional[AdaptiveRoutingDecision]:
         """
         Evaluate rules in order.
 
@@ -162,7 +162,7 @@ class AdaptiveStepHandler:
                     logger.debug(
                         f"Rule matched: {rule.condition} → {rule.target}"
                     )
-                    return RoutingDecision(
+                    return AdaptiveRoutingDecision(
                         target=rule.target,
                         method=RoutingMethod.RULE,
                         rule_condition=rule.condition,
@@ -289,7 +289,7 @@ class AdaptiveStepHandler:
         config: LLMFallbackConfig,
         input_data: Dict[str, Any],
         decision_id: str,
-    ) -> Optional[RoutingDecision]:
+    ) -> Optional[AdaptiveRoutingDecision]:
         """Use LLM to make routing decision."""
         import json
 
@@ -324,7 +324,7 @@ Respond with JSON only:
             )
 
             # Parse response
-            decision = RoutingDecision.from_json(
+            decision = AdaptiveRoutingDecision.from_json(
                 response.content,
                 decision_id=decision_id,
             )

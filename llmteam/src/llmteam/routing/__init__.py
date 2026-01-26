@@ -11,13 +11,16 @@ from llmteam.routing.adaptive import (
     LLMFallbackConfig,
     RouteOption,
     # Results
-    RoutingDecision,
+    AdaptiveRoutingDecision,
     RoutingMethod,
     # Events
     AdaptiveDecisionEvent,
     # Checkpoint
     CheckpointConfig,
 )
+
+# Backward compatibility alias (deprecated)
+RoutingDecision = AdaptiveRoutingDecision
 
 __all__ = [
     # Configuration
@@ -26,7 +29,8 @@ __all__ = [
     "LLMFallbackConfig",
     "RouteOption",
     # Results
-    "RoutingDecision",
+    "AdaptiveRoutingDecision",
+    "RoutingDecision",  # Deprecated alias
     "RoutingMethod",
     # Events
     "AdaptiveDecisionEvent",
