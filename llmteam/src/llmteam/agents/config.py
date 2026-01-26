@@ -78,7 +78,7 @@ class LLMAgentConfig(AgentConfig):
 
 @dataclass
 class RAGAgentConfig(AgentConfig):
-    """RAG agent configuration."""
+    """RAG agent configuration (RFC-025)."""
 
     type: AgentType = AgentType.RAG
     role: str = "rag"
@@ -86,45 +86,83 @@ class RAGAgentConfig(AgentConfig):
     # Mode
     mode: AgentMode = AgentMode.NATIVE
 
-    # Native Mode (external vector store)
-    vector_store: Optional[str] = None  # "chroma", "faiss", "pinecone", "qdrant"
-    collection: str = "default"
-    embedding_model: str = "text-embedding-3-small"
-
-    # RFC-025: "Out of the Box" Mode - documents to index
-    documents: Optional[List[str]] = None  # List of file paths
+    # ═══════════════════════════════════════════════════════
+    # SOURCES (RFC-025)
+    # ═══════════════════════════════════════════════════════
+    documents: Optional[List[str]] = None  # List of file paths or glob patterns
     texts: Optional[List[str]] = None  # List of raw texts
     chunks: Optional[List[str]] = None  # Pre-chunked texts
-    directory: Optional[str] = None  # Directory to scan for documents
+    directory: Optional[str] = None  # Directory to scan recursively
+    urls: Optional[List[str]] = None  # URLs to fetch and index
 
-    # Chunking settings
-    chunk_size: int = 500
-    chunk_overlap: int = 50
+    # ═══════════════════════════════════════════════════════
+    # DOCUMENT LOADING
+    # ═══════════════════════════════════════════════════════
+    loader: str = "auto"  # "auto" | "pdf" | "docx" | "xlsx" | "html" | "text"
 
-    # Embedding settings
-    embedding_api_key: Optional[str] = None  # For embedding provider
+    # ═══════════════════════════════════════════════════════
+    # CHUNKING
+    # ═══════════════════════════════════════════════════════
+    chunker: str = "recursive"  # "recursive" | "sentence" | "token" | "semantic" | "none"
+    chunk_size: int = 512
+    chunk_overlap: int = 64
 
-    # Proxy Mode
-    proxy_endpoint: Optional[str] = None
-    proxy_api_key: Optional[str] = None
+    # ═══════════════════════════════════════════════════════
+    # EMBEDDINGS
+    # ═══════════════════════════════════════════════════════
+    embedding_provider: str = "openai"  # "openai" | "huggingface"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_api_key: Optional[str] = None
+    embedding_cache: bool = True
+    embedding_batch_size: int = 100
 
-    # Retrieval
+    # ═══════════════════════════════════════════════════════
+    # VECTOR STORE
+    # ═══════════════════════════════════════════════════════
+    vector_store: Optional[str] = None  # "auto" | "memory" | "faiss" | "qdrant"
+    vector_store_path: Optional[str] = None  # Path for persistence
+    collection: str = "default"
+
+    # Qdrant-specific
+    qdrant_url: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
+
+    # ═══════════════════════════════════════════════════════
+    # RETRIEVAL
+    # ═══════════════════════════════════════════════════════
     top_k: int = 5
-    score_threshold: float = 0.7
+    score_threshold: float = 0.0
+    rerank: bool = False
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    search_type: str = "similarity"  # "similarity" | "mmr"
+    mmr_diversity: float = 0.3
     namespace: Optional[str] = None
     filters: Dict[str, Any] = field(default_factory=dict)
 
-    # Output
+    # ═══════════════════════════════════════════════════════
+    # OUTPUT
+    # ═══════════════════════════════════════════════════════
     include_sources: bool = True
-    include_scores: bool = False
+    include_scores: bool = True
+    include_metadata: bool = True
+    context_template: str = "{text}"
 
-    # Delivery (for NOT_SHARED mode)
-    deliver_to: Optional[str] = None  # Target agent ID
+    # ═══════════════════════════════════════════════════════
+    # PROXY MODE
+    # ═══════════════════════════════════════════════════════
+    proxy_endpoint: Optional[str] = None
+    proxy_api_key: Optional[str] = None
+
+    # ═══════════════════════════════════════════════════════
+    # DELIVERY
+    # ═══════════════════════════════════════════════════════
+    deliver_to: Optional[str] = None
+    context_key: str = "_rag_context"
 
 
 @dataclass
 class KAGAgentConfig(AgentConfig):
-    """KAG agent configuration."""
+    """KAG agent configuration (RFC-025)."""
 
     type: AgentType = AgentType.KAG
     role: str = "kag"
@@ -132,24 +170,76 @@ class KAGAgentConfig(AgentConfig):
     # Mode
     mode: AgentMode = AgentMode.NATIVE
 
-    # Native Mode
-    graph_store: Optional[str] = None  # "neo4j", "neptune", "memgraph"
-    graph_uri: Optional[str] = None
-    graph_user: Optional[str] = None
-    graph_password: Optional[str] = None
+    # ═══════════════════════════════════════════════════════
+    # SOURCES
+    # ═══════════════════════════════════════════════════════
+    documents: Optional[List[str]] = None  # Documents to build graph from
+    text: Optional[str] = None  # Raw text
+    texts: Optional[List[str]] = None  # Multiple texts
+    entities: Optional[List[Dict[str, Any]]] = None  # Pre-defined entities
+    relations: Optional[List[Dict[str, Any]]] = None  # Pre-defined relations
 
-    # Proxy Mode
-    proxy_endpoint: Optional[str] = None
-    proxy_api_key: Optional[str] = None
+    # ═══════════════════════════════════════════════════════
+    # NER (Named Entity Recognition)
+    # ═══════════════════════════════════════════════════════
+    ner_provider: str = "llm"  # "llm" | "spacy" | "simple"
+    ner_model: Optional[str] = None  # SpaCy model name
+    entity_types: List[str] = field(default_factory=lambda: [
+        "Person", "Organization", "Location", "Date",
+        "Product", "Event", "Technology",
+    ])
+    extract_properties: bool = True
 
-    # Query
-    max_hops: int = 2  # Graph traversal depth
-    max_entities: int = 10
+    # ═══════════════════════════════════════════════════════
+    # RELATION EXTRACTION
+    # ═══════════════════════════════════════════════════════
+    relation_extractor: str = "llm"  # "llm" | "pattern"
+    relation_types: List[str] = field(default_factory=lambda: [
+        "WORKS_FOR", "FOUNDED", "CEO_OF", "LOCATED_IN",
+        "OWNS", "PART_OF", "CREATED", "RELATED_TO",
+    ])
+
+    # ═══════════════════════════════════════════════════════
+    # GRAPH STORE
+    # ═══════════════════════════════════════════════════════
+    graph_store: str = "memory"  # "memory" | "neo4j"
+    graph_store_path: Optional[str] = None
+
+    # Neo4j settings
+    neo4j_uri: Optional[str] = None
+    neo4j_user: Optional[str] = None
+    neo4j_password: Optional[str] = None
+
+    # ═══════════════════════════════════════════════════════
+    # GRAPH TRAVERSAL
+    # ═══════════════════════════════════════════════════════
+    max_hops: int = 2
+    max_entities: int = 30
+    max_relations: int = 50
     include_relations: bool = True
 
-    # Entity Extraction
-    extract_entities: bool = True  # Extract from query
-    entity_types: List[str] = field(default_factory=list)
+    # ═══════════════════════════════════════════════════════
+    # QUERY
+    # ═══════════════════════════════════════════════════════
+    query_mode: str = "hybrid"  # "entity" | "relation" | "path" | "hybrid"
+    extract_query_entities: bool = True
 
-    # Delivery
+    # ═══════════════════════════════════════════════════════
+    # OUTPUT
+    # ═══════════════════════════════════════════════════════
+    return_subgraph: bool = True
+    return_paths: bool = False
+    context_template: str = "Entities: {entities}\nRelations: {relations}"
+
+    # ═══════════════════════════════════════════════════════
+    # DELIVERY
+    # ═══════════════════════════════════════════════════════
     deliver_to: Optional[str] = None
+    context_key: str = "_kag_context"
+
+    # Legacy fields
+    graph_uri: Optional[str] = None  # Deprecated, use neo4j_uri
+    graph_user: Optional[str] = None  # Deprecated, use neo4j_user
+    graph_password: Optional[str] = None  # Deprecated, use neo4j_password
+    proxy_endpoint: Optional[str] = None
+    proxy_api_key: Optional[str] = None

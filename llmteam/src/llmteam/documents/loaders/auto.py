@@ -17,9 +17,12 @@ class AutoLoader(BaseLoader):
     Automatic loader that detects file type and uses the appropriate loader.
 
     Supports:
-        - .txt, .md, .markdown, .rst, .text (TextLoader)
+        - .txt, .md, .markdown, .rst, .text, .csv, .json (TextLoader)
         - .pdf (PDFLoader, requires pypdf)
         - .docx (DocxLoader, requires python-docx)
+        - .xlsx, .xls (ExcelLoader, requires openpyxl)
+        - .html, .htm, .xhtml (HTMLLoader, requires beautifulsoup4)
+        - .pptx (PPTXLoader, requires python-pptx)
     """
 
     # Mapping of extensions to loader classes (lazy loaded)
@@ -29,8 +32,16 @@ class AutoLoader(BaseLoader):
         ".markdown": "text",
         ".rst": "text",
         ".text": "text",
+        ".csv": "text",
+        ".json": "text",
         ".pdf": "pdf",
         ".docx": "docx",
+        ".xlsx": "xlsx",
+        ".xls": "xlsx",
+        ".html": "html",
+        ".htm": "html",
+        ".xhtml": "html",
+        ".pptx": "pptx",
     }
 
     def __init__(self):
@@ -52,6 +63,18 @@ class AutoLoader(BaseLoader):
             from llmteam.documents.loaders.docx import DocxLoader
 
             self._loaders["docx"] = DocxLoader()
+        elif loader_type == "xlsx":
+            from llmteam.documents.loaders.xlsx import ExcelLoader
+
+            self._loaders["xlsx"] = ExcelLoader()
+        elif loader_type == "html":
+            from llmteam.documents.loaders.html import HTMLLoader
+
+            self._loaders["html"] = HTMLLoader()
+        elif loader_type == "pptx":
+            from llmteam.documents.loaders.pptx import PPTXLoader
+
+            self._loaders["pptx"] = PPTXLoader()
         else:
             raise ValueError(f"Unknown loader type: {loader_type}")
 

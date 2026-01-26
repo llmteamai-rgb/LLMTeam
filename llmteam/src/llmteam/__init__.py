@@ -360,8 +360,9 @@ from llmteam.agents import (
     KAGResult,
     # Factory
     AgentFactory,
-    # RFC-025: RAGAgent for "out of the box" usage
+    # RFC-025: RAGAgent and KAGAgent for "out of the box" usage
     RAGAgent,
+    KAGAgent,
     # Presets
     create_orchestrator_config,
     create_group_orchestrator_config,
@@ -397,12 +398,15 @@ from llmteam.documents import (
     BaseChunker,
     RecursiveChunker,
     SentenceChunker,
+    TokenChunker,
+    SemanticChunker,
 )
 
 # RFC-025: Embeddings for RAG
 from llmteam.embeddings import (
     BaseEmbedding,
     OpenAIEmbedding,
+    HuggingFaceEmbedding,
     EmbeddingCache,
 )
 
@@ -411,6 +415,31 @@ from llmteam.vectorstores import (
     BaseVectorStore,
     SearchResult,
     InMemoryVectorStore,
+    AutoStore,
+    select_store,
+)
+
+# RFC-025: NER for KAG
+from llmteam.ner import (
+    BaseNER,
+    Entity,
+    SimpleNER,
+    LLMNER,
+)
+
+# RFC-025: Graph stores for KAG
+from llmteam.graphstores import (
+    BaseGraphStore,
+    Relation,
+    Subgraph,
+    Path,
+    InMemoryGraphStore,
+)
+
+# RFC-025: Knowledge extraction for KAG
+from llmteam.knowledge import (
+    RelationExtractor,
+    KnowledgeGraphBuilder,
 )
 
 # v4.0.0: LLMTeam and LLMGroup
@@ -791,8 +820,9 @@ __all__ = [
     "RAGResult",
     "KAGResult",
     "AgentFactory",
-    # RFC-025: RAGAgent for "out of the box" usage
+    # RFC-025: RAGAgent and KAGAgent for "out of the box" usage
     "RAGAgent",
+    "KAGAgent",
     "create_orchestrator_config",
     "create_group_orchestrator_config",
     "create_summarizer_config",
@@ -811,16 +841,38 @@ __all__ = [
     "BaseChunker",
     "RecursiveChunker",
     "SentenceChunker",
+    "TokenChunker",
+    "SemanticChunker",
 
     # RFC-025: Embeddings for RAG
     "BaseEmbedding",
     "OpenAIEmbedding",
+    "HuggingFaceEmbedding",
     "EmbeddingCache",
 
     # RFC-025: Vector stores for RAG
     "BaseVectorStore",
     "SearchResult",
     "InMemoryVectorStore",
+    "AutoStore",
+    "select_store",
+
+    # RFC-025: NER for KAG
+    "BaseNER",
+    "Entity",
+    "SimpleNER",
+    "LLMNER",
+
+    # RFC-025: Graph stores for KAG
+    "BaseGraphStore",
+    "Relation",
+    "Subgraph",
+    "Path",
+    "InMemoryGraphStore",
+
+    # RFC-025: Knowledge extraction for KAG
+    "RelationExtractor",
+    "KnowledgeGraphBuilder",
 
     # v4.1.0: Orchestrator
     "AgentReport",

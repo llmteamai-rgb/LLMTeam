@@ -16,6 +16,8 @@ from llmteam.documents.chunkers import (
     BaseChunker,
     RecursiveChunker,
     SentenceChunker,
+    TokenChunker,
+    SemanticChunker,
 )
 
 __all__ = [
@@ -32,4 +34,6 @@ __all__ = [
     "BaseChunker",
     "RecursiveChunker",
     "SentenceChunker",
+    "TokenChunker",
+    "SemanticChunker",
 ]

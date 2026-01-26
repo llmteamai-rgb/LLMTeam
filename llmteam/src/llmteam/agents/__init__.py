@@ -39,11 +39,12 @@ from llmteam.agents.orchestrator import (
     RecoveryAction,
 )
 
-# RFC-025: RAGAgent exported for "out of the box" usage
+# RFC-025: RAGAgent and KAGAgent exported for "out of the box" usage
 from llmteam.agents.rag_agent import RAGAgent
+from llmteam.agents.kag_agent import KAGAgent
 
 # BaseAgent is NOT exported - internal only
-# LLMAgent, KAGAgent are NOT exported - created via AgentFactory
+# LLMAgent is NOT exported - created via AgentFactory
 
 __all__ = [
     # Types
@@ -63,8 +64,9 @@ __all__ = [
     "KAGResult",
     # Factory
     "AgentFactory",
-    # RFC-025: RAGAgent for "out of the box" usage
+    # RFC-025: RAGAgent and KAGAgent for "out of the box" usage
     "RAGAgent",
+    "KAGAgent",
     # Presets
     "create_orchestrator_config",
     "create_group_orchestrator_config",

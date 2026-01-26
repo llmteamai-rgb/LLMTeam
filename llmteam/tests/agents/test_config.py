@@ -113,7 +113,7 @@ class TestRAGAgentConfig:
         assert config.mode == AgentMode.NATIVE
         assert config.collection == "default"
         assert config.top_k == 5
-        assert config.score_threshold == 0.7
+        assert config.score_threshold == 0.0  # RFC-025: Default to 0.0 for no filtering
 
     def test_custom_collection(self):
         """Test custom collection."""
@@ -168,7 +168,7 @@ class TestKAGAgentConfig:
         assert config.type == AgentType.KAG
         assert config.mode == AgentMode.NATIVE
         assert config.max_hops == 2
-        assert config.max_entities == 10
+        assert config.max_entities == 30  # RFC-025: Default to 30 entities
 
     def test_graph_settings(self):
         """Test graph configuration."""
@@ -198,10 +198,10 @@ class TestKAGAgentConfig:
         """Test entity extraction settings."""
         config = KAGAgentConfig(
             role="knowledge",
-            extract_entities=True,
+            extract_query_entities=True,  # RFC-025: renamed from extract_entities
             entity_types=["Person", "Organization", "Location"],
         )
-        assert config.extract_entities is True
+        assert config.extract_query_entities is True
         assert "Person" in config.entity_types
 
     def test_proxy_mode(self):

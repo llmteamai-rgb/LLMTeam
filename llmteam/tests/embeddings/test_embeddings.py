@@ -5,7 +5,7 @@ Tests for embeddings module.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from llmteam.embeddings import BaseEmbedding, OpenAIEmbedding, EmbeddingCache, MODEL_DIMENSIONS
+from llmteam.embeddings import BaseEmbedding, OpenAIEmbedding, EmbeddingCache, OPENAI_DIMENSIONS
 
 
 class TestOpenAIEmbedding:

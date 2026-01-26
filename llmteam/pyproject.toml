@@ -53,11 +53,47 @@ pdf = [
 docx = [
     "python-docx>=1.0.0",
 ]
+xlsx = [
+    "openpyxl>=3.1.0",
+]
+html = [
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+]
+pptx = [
+    "python-pptx>=0.6.21",
+]
+# RFC-025: Chunkers
+token-chunker = [
+    "tiktoken>=0.5.0",
+]
+# RFC-025: Embeddings
+embeddings-hf = [
+    "sentence-transformers>=2.2.0",
+]
+# RFC-025: Vector stores
+faiss = [
+    "faiss-cpu>=1.7.0",
+]
+qdrant = [
+    "qdrant-client>=1.7.0",
+]
+# RFC-025: KAG components
+kag = [
+    "networkx>=3.0",
+    "neo4j>=5.0.0",
+    "spacy>=3.7.0",
+]
 rag = [
-    # All RAG dependencies (documents, embeddings)
+    # All RAG dependencies (documents, embeddings, vector stores)
     "pypdf>=4.0.0",
     "python-docx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "beautifulsoup4>=4.12.0",
+    "python-pptx>=0.6.21",
+    "tiktoken>=0.5.0",
     "openai>=1.0.0",  # For embeddings
+    "faiss-cpu>=1.7.0",
 ]
 postgres = [
     "asyncpg>=0.28.0",
@@ -159,6 +195,20 @@ all = [
     # RFC-025: RAG document loaders
     "pypdf>=4.0.0",
     "python-docx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "python-pptx>=0.6.21",
+    # RFC-025: Chunkers & Embeddings
+    "tiktoken>=0.5.0",
+    "sentence-transformers>=2.2.0",
+    # RFC-025: Vector stores
+    "faiss-cpu>=1.7.0",
+    "qdrant-client>=1.7.0",
+    # RFC-025: KAG
+    "networkx>=3.0",
+    "neo4j>=5.0.0",
+    "spacy>=3.7.0",
 ]
 dev = [
     "pytest>=7.4.0",
