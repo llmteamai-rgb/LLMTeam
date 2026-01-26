@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **PyPI package:** `llmteam-ai` (install via `pip install llmteam-ai`)
 - **Import as:** `import llmteam`
-- **Current version:** 5.5.0 (RFC-019: Quality Integration)
+- **Current version:** 6.1.0 (RFC-022: Task Solver Architecture)
 - **Python:** >=3.10
 - **License:** Apache-2.0
 
@@ -244,8 +244,7 @@ team = LLMTeam(
         {"type": "llm", "role": "writer", "prompt": "Write about: {query}"},
     ],
     flow="retriever -> writer",  # DAG flow
-    quality=70,  # RFC-008: Quality slider 0-100
-    max_cost_per_run=1.00,  # RFC-008: Optional cost limit
+    max_cost_per_run=1.00,  # Optional cost limit
 )
 
 # Execute team
@@ -254,9 +253,81 @@ print(result.output)  # Combined agent outputs
 print(result.report)  # Execution report (v4.1.0)
 print(result.summary)  # Execution summary (v4.1.0)
 
-# RFC-008: Get cost estimate and quality info
+# Get cost estimate
 estimate = await team.estimate_cost()
-manager = team.get_quality_manager()
+```
+
+**Task Solver Pattern (RFC-022):** Three-level API for task solving:
+```python
+from llmteam import LLMTeam
+
+# L1: One-call solution - describe task, get result
+result = await LLMTeam.solve(
+    task="Write an article about AI in medicine",
+    quality=70,
+    constraints={"language": "en", "tone": "professional"},
+    max_cost=0.50,
+    routing_mode="hybrid",  # sequential | hybrid | dynamic
+)
+print(result.output)  # Article text
+print(result.cost)    # Actual cost
+
+# L1: Interactive session with Q&A
+session = await LLMTeam.start(
+    task="Create a marketing campaign",
+    quality=70,
+)
+print(session.question)  # "What product?"
+await session.answer("Fitness app for millennials")
+print(session.question)  # "Budget? Channels?"
+await session.answer("$5000, Instagram + TikTok")
+print(session.plan)
+result = await session.execute()
+
+# L2: Configure team with ability to inspect/modify
+team = await LLMTeam.create_configured(
+    task="Write article about AI",
+    quality=70,
+)
+print(team.list_agents())  # Inspect created agents
+team.remove_agent("editor")  # Modify
+team.add_llm_agent(role="fact_checker", prompt="Verify: {input}")
+result = await team.run({"topic": "AI trends"})  # Execute
+```
+
+**Adaptive Routing Pattern (RFC-022):** Rules-first routing with LLM fallback:
+```python
+from llmteam import AdaptiveStepConfig, RoutingRule, LLMFallbackConfig, RouteOption
+
+# Configure adaptive routing step
+config = AdaptiveStepConfig(
+    decision_id="complexity_check",
+    rules=[
+        RoutingRule(
+            condition="output.complexity == 'simple'",
+            target="simple_writer",
+            description="Route simple tasks directly to writer",
+        ),
+        RoutingRule(
+            condition="output.complexity == 'complex'",
+            target="researcher",
+            description="Route complex tasks to researcher first",
+        ),
+    ],
+    llm_fallback=LLMFallbackConfig(
+        model="gpt-4o-mini",
+        prompt="Decide if this task is simple or complex",
+        routes=[
+            RouteOption(target="simple_writer", description="Simple tasks"),
+            RouteOption(target="researcher", description="Complex tasks"),
+        ],
+    ),
+    default_route="researcher",
+    checkpoint_before=True,  # Create checkpoint before decision
+)
+
+# Use in workflow as 'adaptive' step type
+# Flow: analyzer → [adaptive:complexity_check] → writer | researcher → writer
 ```
 
 **LLMGroup Pattern (v4.0.0):** Multi-team coordination:

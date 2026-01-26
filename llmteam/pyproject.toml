@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmteam-ai"
-version = "5.5.0"
+version = "6.1.0"
 description = "Enterprise AI Workflow Runtime - Multi-agent LLM pipelines with security, orchestration, and workflow capabilities"
 readme = "README.md"
 license = "Apache-2.0"
@@ -42,6 +42,7 @@ dependencies = [
 
 [project.scripts]
 llmteam = "llmteam.cli.main:main"
+llmteam-playground = "llmteam.playground.__main__:main"
 
 [project.optional-dependencies]
 postgres = [

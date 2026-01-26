@@ -4,6 +4,16 @@ llmteam - Enterprise AI Workflow Runtime
 A library for building multi-agent LLM pipelines with enterprise-grade
 security, orchestration, and workflow capabilities.
 
+Version: 6.1.0 (RFC-022: Task Solver Architecture)
+    - New: LLMTeam.solve() - L1 API for one-call task solving
+    - New: LLMTeam.start() - Interactive session with Q&A
+    - New: LLMTeam.create_configured() - L2 API for configurable teams
+    - New: InteractiveSession for conversational task clarification
+    - New: AdaptiveStepHandler for rules-first routing with LLM fallback
+    - New: AdaptiveStepConfig, RoutingRule, LLMFallbackConfig, RouteOption
+    - New: RoutingDecision, RoutingMethod, AdaptiveDecisionEvent
+    - New: Hybrid routing mode (deterministic graph + adaptive points)
+
 Version: 5.5.0 (RFC-019: Quality Integration)
     - New: QualityAwareLLMMixin for quality-aware LLM calls
     - New: Quality integration in ConfigurationSession, TeamOrchestrator, GroupOrchestrator
@@ -79,7 +89,7 @@ Quick Start:
 Documentation: https://docs.llmteam.ai
 """
 
-__version__ = "5.5.0"
+__version__ = "6.1.0"
 __author__ = "llmteam contributors"
 __email__ = "LLMTeamai@gmail.com"
 
@@ -383,6 +393,11 @@ from llmteam.team import (
     TeamResult,
     TeamSnapshot,
     TeamConfig,
+    # RFC-022: Interactive session
+    InteractiveSession,
+    InteractiveSessionState,
+    InteractiveQuestion,
+    TeamProposal,
 )
 
 # v3.0.0: Registries
@@ -497,6 +512,18 @@ from llmteam.quality import (
     PipelineDepth,
     CostEstimate,
     CostEstimator,
+)
+
+# RFC-022: Adaptive Routing
+from llmteam.routing import (
+    AdaptiveStepConfig,
+    RoutingRule,
+    LLMFallbackConfig,
+    RouteOption,
+    RoutingDecision,
+    RoutingMethod,
+    AdaptiveDecisionEvent,
+    CheckpointConfig,
 )
 
 # v2.0.0: Three-Level Ports (RFC #7)
@@ -766,6 +793,11 @@ __all__ = [
     "TeamResult",
     "TeamSnapshot",
     "TeamConfig",
+    # RFC-022: Interactive session
+    "InteractiveSession",
+    "InteractiveSessionState",
+    "InteractiveQuestion",
+    "TeamProposal",
 
     # Registries (v3.0.0)
     "BaseRegistry",
@@ -860,6 +892,16 @@ __all__ = [
     "PipelineDepth",
     "CostEstimate",
     "CostEstimator",
+
+    # RFC-022: Adaptive Routing
+    "AdaptiveStepConfig",
+    "RoutingRule",
+    "LLMFallbackConfig",
+    "RouteOption",
+    "RoutingDecision",
+    "RoutingMethod",
+    "AdaptiveDecisionEvent",
+    "CheckpointConfig",
 
     # Contract (v3.0.0)
     "TeamContract",

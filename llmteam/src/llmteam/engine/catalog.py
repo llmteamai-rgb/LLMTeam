@@ -686,3 +686,97 @@ class StepCatalog:
             ),
             handler=team_handler,
         )
+
+        # RFC-022: Adaptive Routing Step
+        from llmteam.engine.handlers.adaptive_handler import AdaptiveStepHandler
+        adaptive_handler = AdaptiveStepHandler()
+
+        self.register(
+            StepTypeMetadata(
+                type_id="adaptive",
+                version="1.0",
+                display_name="Adaptive Routing",
+                description="Rules-first routing with optional LLM fallback",
+                category=StepCategory.CONTROL,
+                icon="compass",
+                color="#E74C3C",
+                config_schema={
+                    "type": "object",
+                    "properties": {
+                        "decision_id": {
+                            "type": "string",
+                            "description": "Unique identifier for this decision point",
+                        },
+                        "rules": {
+                            "type": "array",
+                            "description": "Rule-based routing conditions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "condition": {
+                                        "type": "string",
+                                        "description": "Condition expression",
+                                    },
+                                    "target": {
+                                        "type": "string",
+                                        "description": "Target step if condition matches",
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Human-readable description",
+                                    },
+                                },
+                                "required": ["condition", "target"],
+                            },
+                        },
+                        "llm_fallback": {
+                            "type": "object",
+                            "description": "LLM fallback configuration",
+                            "properties": {
+                                "model": {
+                                    "type": "string",
+                                    "default": "gpt-4o-mini",
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "System prompt for routing decision",
+                                },
+                                "routes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "target": {"type": "string"},
+                                            "description": {"type": "string"},
+                                            "when": {"type": "string"},
+                                        },
+                                        "required": ["target", "description"],
+                                    },
+                                },
+                                "max_tokens": {
+                                    "type": "integer",
+                                    "default": 100,
+                                },
+                            },
+                        },
+                        "default_route": {
+                            "type": "string",
+                            "description": "Default route if nothing matches",
+                        },
+                        "checkpoint_before": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Create checkpoint before decision",
+                        },
+                    },
+                    "required": ["decision_id"],
+                },
+                input_ports=[
+                    PortSpec("input", "any", "Input data for routing decision"),
+                ],
+                output_ports=[
+                    PortSpec("output", "any", "Routing decision and pass-through data"),
+                ],
+            ),
+            handler=adaptive_handler,
+        )

@@ -21,6 +21,9 @@ from llmteam.engine.handlers.error_handler import ErrorHandler, TryCatchHandler
 from llmteam.engine.handlers.subworkflow_handler import SubworkflowHandler
 from llmteam.engine.handlers.switch_handler import SwitchHandler
 
+# RFC-022: Adaptive routing handler
+from llmteam.engine.handlers.adaptive_handler import AdaptiveStepHandler
+
 __all__ = [
     "LLMAgentHandler",
     "HTTPActionHandler",
@@ -37,4 +40,6 @@ __all__ = [
     # v2.2.0
     "SubworkflowHandler",
     "SwitchHandler",
+    # RFC-022
+    "AdaptiveStepHandler",
 ]

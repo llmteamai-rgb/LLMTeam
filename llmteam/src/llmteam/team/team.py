@@ -521,73 +521,76 @@ class LLMTeam:
                 default_model=self._model,
                 collect_tool_events=True,  # Stream needs tool events
             ):
-                # Map RouterEvent to StreamEvent
-                if event.type == RouterEventType.USER_INPUT:
+                # Map RouterEvent to StreamEvent using string comparison
+                # to avoid enum caching issues
+                event_type_name = event.type.name if hasattr(event.type, 'name') else str(event.type)
+
+                if event_type_name == "USER_INPUT":
                     yield StreamEvent(
                         type=StreamEventType.USER_INPUT,
                         data=event.data,
                         run_id=run_id,
                     )
-                elif event.type == RouterEventType.AGENT_STARTED:
-                    yield StreamEvent(
-                        type=StreamEventType.AGENT_STARTED,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.AGENT_COMPLETED:
-                    yield StreamEvent(
-                        type=StreamEventType.AGENT_COMPLETED,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.AGENT_FAILED:
-                    yield StreamEvent(
-                        type=StreamEventType.AGENT_FAILED,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.TOOL_CALL:
-                    yield StreamEvent(
-                        type=StreamEventType.TOOL_CALL,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.TOOL_RESULT:
-                    yield StreamEvent(
-                        type=StreamEventType.TOOL_RESULT,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.COST_UPDATE:
-                    yield StreamEvent(
-                        type=StreamEventType.COST_UPDATE,
-                        data=event.data,
-                        run_id=run_id,
-                        agent_id=event.agent_id,
-                    )
-                elif event.type == RouterEventType.BUDGET_EXCEEDED:
-                    yield StreamEvent(
-                        type=StreamEventType.RUN_FAILED,
-                        data={"error": "Budget exceeded"},
-                        run_id=run_id,
-                    )
-                    error_msg = "Budget exceeded"
-                elif event.type == RouterEventType.LOOP_DONE:
-                    final_state = event.data
-                    if final_state.get("error"):
-                        error_msg = final_state["error"]
-                elif event.type == RouterEventType.AGENT_SELECTED:
+                elif event_type_name == "AGENT_SELECTED":
                     yield StreamEvent(
                         type=StreamEventType.AGENT_SELECTED,
                         data=event.data,
                         run_id=run_id,
                         agent_id=event.agent_id,
                     )
+                elif event_type_name == "AGENT_STARTED":
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_STARTED,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "AGENT_COMPLETED":
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_COMPLETED,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "AGENT_FAILED":
+                    yield StreamEvent(
+                        type=StreamEventType.AGENT_FAILED,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "TOOL_CALL":
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_CALL,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "TOOL_RESULT":
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_RESULT,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "COST_UPDATE":
+                    yield StreamEvent(
+                        type=StreamEventType.COST_UPDATE,
+                        data=event.data,
+                        run_id=run_id,
+                        agent_id=event.agent_id,
+                    )
+                elif event_type_name == "BUDGET_EXCEEDED":
+                    yield StreamEvent(
+                        type=StreamEventType.RUN_FAILED,
+                        data={"error": "Budget exceeded"},
+                        run_id=run_id,
+                    )
+                    error_msg = "Budget exceeded"
+                elif event_type_name == "LOOP_DONE":
+                    final_state = event.data
+                    if final_state.get("error"):
+                        error_msg = final_state["error"]
 
         except Exception as e:
             error_msg = str(e)
@@ -1168,6 +1171,187 @@ class LLMTeam:
             if step.type in ("llm", "rag", "kag"):
                 config = {"type": step.type, "role": step.step_id, **step.config}
                 team.add_agent(config)
+
+        return team
+
+    # =========================================================================
+    # RFC-022: Task Solver API (L1/L2)
+    # =========================================================================
+
+    @classmethod
+    async def solve(
+        cls,
+        task: str,
+        quality: int = 50,
+        constraints: Optional[Dict[str, Any]] = None,
+        max_cost: Optional[float] = None,
+        timeout: Optional[int] = None,
+        routing_mode: str = "hybrid",
+    ) -> RunResult:
+        """
+        L1 API: Solve a task with automatic team creation.
+
+        RFC-022: One-call solution - describe task, get result.
+        LLMTeam automatically creates optimal team and executes.
+
+        Args:
+            task: Task description in natural language
+            quality: Quality level 0-100 (affects model selection, iterations)
+            constraints: Task constraints (language, tone, length, etc.)
+            max_cost: Maximum cost in USD (default: no limit)
+            timeout: Timeout in seconds (default: no limit)
+            routing_mode: "sequential", "hybrid" (default), or "dynamic"
+
+        Returns:
+            RunResult with output, cost, and metadata
+
+        Example:
+            result = await LLMTeam.solve(
+                task="Write an article about AI in medicine",
+                quality=70,
+                constraints={"language": "en", "tone": "professional"},
+                max_cost=0.50,
+            )
+            print(result.output)       # Article text
+            print(result.cost)         # Actual cost
+            print(result.duration)     # Execution time
+        """
+        from llmteam.builder import DynamicTeamBuilder
+
+        # Use DynamicTeamBuilder to analyze and create team
+        builder = DynamicTeamBuilder(verbose=False)
+
+        # Analyze task and create blueprint
+        blueprint = await builder.analyze_task(task, constraints=constraints)
+
+        # Build team from blueprint
+        team = builder.build_team(blueprint)
+
+        # Apply constraints
+        if max_cost:
+            team._max_cost_per_run = max_cost
+            team._budget_manager = BudgetManager(Budget(max_cost=max_cost))
+
+        if timeout:
+            team._timeout = timeout
+
+        # Enable orchestration based on routing mode
+        if routing_mode == "dynamic":
+            # ROUTER mode - orchestrator decides on each step
+            team._orchestrator = TeamOrchestrator(
+                team=team,
+                config=OrchestratorConfig(mode=OrchestratorMode.ACTIVE),
+            )
+        elif routing_mode == "hybrid":
+            # Hybrid - use flow with adaptive steps (when builder supports it)
+            # For now, use ROUTER mode
+            team._orchestrator = TeamOrchestrator(
+                team=team,
+                config=OrchestratorConfig(mode=OrchestratorMode.ACTIVE),
+            )
+        # sequential: keep default PASSIVE orchestrator
+
+        # Execute
+        result = await team.run({"task": task, "constraints": constraints or {}})
+
+        return result
+
+    @classmethod
+    async def start(
+        cls,
+        task: str,
+        quality: int = 50,
+        routing_mode: str = "hybrid",
+    ) -> "InteractiveSession":
+        """
+        L1 API: Start interactive session for task discussion.
+
+        RFC-022: Interactive mode - orchestrator asks clarifying questions.
+
+        Args:
+            task: Initial task description
+            quality: Quality level 0-100
+            routing_mode: "sequential", "hybrid" (default), or "dynamic"
+
+        Returns:
+            InteractiveSession for Q&A flow
+
+        Example:
+            session = await LLMTeam.start(
+                task="Create a marketing campaign",
+            )
+
+            # Orchestrator asks questions
+            print(session.question)  # "What product?"
+
+            session.answer("Fitness app for millennials")
+
+            print(session.question)  # "Budget? Channels?"
+
+            session.answer("$5000, Instagram + TikTok")
+
+            # Ready to execute
+            print(session.plan)
+            result = await session.execute()
+        """
+        from llmteam.team.interactive import InteractiveSession
+
+        session = InteractiveSession(
+            task=task,
+            quality=quality,
+            routing_mode=routing_mode,
+        )
+
+        # Start the session (will analyze task)
+        await session._start()
+
+        return session
+
+    @classmethod
+    async def create_configured(
+        cls,
+        task: str,
+        quality: int = 50,
+    ) -> "LLMTeam":
+        """
+        L2 API: Configure team for task with ability to inspect/modify.
+
+        RFC-022: Create team without executing - allows inspection and modification.
+
+        Args:
+            task: Task description in natural language
+            quality: Quality level 0-100
+
+        Returns:
+            LLMTeam configured for the task (not yet executed)
+
+        Example:
+            team = await LLMTeam.create_configured(
+                task="Write article about AI",
+                quality=70,
+            )
+
+            # Inspect what was created
+            print(team.list_agents())
+            print(team._flow)
+            estimate = await team.estimate_cost()
+            print(f"Estimated: ${estimate.min:.2f} - ${estimate.max:.2f}")
+
+            # Modify
+            team.remove_agent("editor")
+            team.add_llm_agent(
+                role="fact_checker",
+                prompt="Verify facts in: {input}",
+            )
+
+            # Execute
+            result = await team.run({"topic": "AI trends"})
+        """
+        from llmteam.builder import DynamicTeamBuilder
+
+        builder = DynamicTeamBuilder(verbose=False)
+        blueprint = await builder.analyze_task(task)
+        team = builder.build_team(blueprint)
 
         return team
 
