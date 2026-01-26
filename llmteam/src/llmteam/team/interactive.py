@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from llmteam.team.team import LLMTeam
     from llmteam.team.result import RunResult
     from llmteam.builder import TeamBlueprint
+    from llmteam.configuration import ConfiguratorOutput, TaskAnalysis
 
 
 class SessionState(str, Enum):
@@ -24,7 +25,7 @@ class SessionState(str, Enum):
 
     IDLE = "idle"
     GATHERING_INFO = "gathering_info"
-    ROUTING_CONFIG = "routing_config"
+    ROUTING_CONFIG = "routing_config"  # RFC-023: Routing preferences
     PROPOSING = "proposing"
     READY = "ready"
     EXECUTING = "executing"
@@ -68,22 +69,30 @@ class TeamProposal:
     estimated_cost_max: float = 0.0
     """Maximum estimated cost."""
 
+    adaptive_cost: float = 0.0
+    """Cost of routing decisions."""
+
 
 class InteractiveSession:
     """
     Interactive session for task clarification and team creation.
 
-    RFC-022/RFC-023: Conversational flow for task-solving.
+    RFC-022/RFC-023: Conversational flow for task-solving with routing config.
 
     Example:
         session = await LLMTeam.start("Create marketing campaign")
 
         while session.state == SessionState.GATHERING_INFO:
             print(session.question)
-            session.answer(input("> "))
+            await session.answer(input("> "))
+
+        # If routing config needed (quality >= 60 with decision points)
+        if session.state == SessionState.ROUTING_CONFIG:
+            print(session.question)
+            await session.answer("auto")
 
         print(session.proposal)
-        session.adjust("Add SEO specialist")
+        await session.adjust("Add SEO specialist")
 
         result = await session.execute()
     """
@@ -109,6 +118,9 @@ class InteractiveSession:
         self.quality = quality
         self.routing_mode = routing_mode
 
+        # RFC-023: Routing preference
+        self.routing_preference: str = "auto"  # auto | rules_only | ask_each_time | full_llm
+
         self._state = SessionState.IDLE
         self._messages: List[Dict[str, str]] = []
         self._answers: Dict[str, Any] = {}
@@ -116,6 +128,8 @@ class InteractiveSession:
         self._proposal: Optional[TeamProposal] = None
         self._team: Optional["LLMTeam"] = None
         self._blueprint: Optional["TeamBlueprint"] = None
+        self._config_output: Optional["ConfiguratorOutput"] = None
+        self._analysis: Optional["TaskAnalysis"] = None
         self._result: Optional["RunResult"] = None
 
     @property
@@ -125,7 +139,7 @@ class InteractiveSession:
 
     @property
     def question(self) -> Optional[str]:
-        """Current question text (if in GATHERING_INFO state)."""
+        """Current question text (if in GATHERING_INFO or ROUTING_CONFIG state)."""
         if self._current_question:
             return self._current_question.text
         return None
@@ -162,12 +176,15 @@ class InteractiveSession:
         if self._proposal.decision_points:
             lines.append("\nDecision Points:")
             for dp in self._proposal.decision_points:
-                lines.append(f"  - {dp.get('decision_id', 'unknown')}")
+                dp_id = dp.get('decision_id', 'unknown')
+                has_llm = dp.get('llm_fallback') is not None
+                mode = "rules + LLM" if has_llm else "rules only"
+                lines.append(f"  - {dp_id}: {mode}")
 
-        lines.append(
-            f"\nEstimated cost: ${self._proposal.estimated_cost_min:.2f} - "
-            f"${self._proposal.estimated_cost_max:.2f}"
-        )
+        cost_str = f"${self._proposal.estimated_cost_min:.2f} - ${self._proposal.estimated_cost_max:.2f}"
+        if self._proposal.adaptive_cost > 0:
+            cost_str += f" (includes ~${self._proposal.adaptive_cost:.2f} for routing)"
+        lines.append(f"\nEstimated cost: {cost_str}")
 
         return "\n".join(lines)
 
@@ -183,7 +200,7 @@ class InteractiveSession:
 
     async def _start(self) -> None:
         """Internal: Start the session by analyzing the task."""
-        from llmteam.builder import DynamicTeamBuilder
+        from llmteam.configuration import Configurator
 
         self._state = SessionState.GATHERING_INFO
 
@@ -193,25 +210,95 @@ class InteractiveSession:
             "content": self.task,
         })
 
-        # Use DynamicTeamBuilder for analysis
-        builder = DynamicTeamBuilder(verbose=False)
+        # Use Configurator for analysis
+        configurator = Configurator(routing_mode=self.routing_mode, quality=self.quality)
 
-        # Check if task needs clarification
-        questions = await builder.ask_clarifying_questions(self.task)
-
-        if questions:
-            # Need to gather more info
-            self._current_question = Question(
-                text=questions[0],
-                field_name="clarification_0",
+        try:
+            # Analyze task to understand requirements
+            self._analysis = await configurator._analyze_task(
+                task=self.task,
+                quality=self.quality,
+                constraints={},
+                context=None,
             )
+
+            # Check if task needs clarification based on complexity
+            if self._analysis.complexity == "complex" and len(self._analysis.sub_tasks) > 3:
+                # Complex task - ask clarifying questions
+                questions = self._generate_clarifying_questions()
+                if questions:
+                    self._current_question = Question(
+                        text=questions[0],
+                        field_name="clarification_0",
+                    )
+                    self._messages.append({
+                        "role": "assistant",
+                        "content": questions[0],
+                    })
+                    return
+
+            # Task is clear enough, check for routing config
+            if self.quality >= 60 and self._analysis.decision_points:
+                self._state = SessionState.ROUTING_CONFIG
+                self._current_question = self._generate_routing_question()
+                self._messages.append({
+                    "role": "assistant",
+                    "content": self._current_question.text,
+                })
+            else:
+                # Simple task or low quality - go to proposing
+                await self._generate_proposal()
+
+        except Exception as e:
+            # Fallback to simple proposal
             self._messages.append({
                 "role": "assistant",
-                "content": questions[0],
+                "content": f"Analysis note: {e}. Generating simple proposal...",
             })
-        else:
-            # Task is clear, move to proposing
             await self._generate_proposal()
+
+    def _generate_clarifying_questions(self) -> List[str]:
+        """Generate clarifying questions based on analysis."""
+        questions = []
+
+        if self._analysis:
+            # Ask about unclear aspects
+            if not self._analysis.domain:
+                questions.append("What domain or industry is this for?")
+
+            if len(self._analysis.sub_tasks) > 5:
+                questions.append(
+                    f"This seems complex with {len(self._analysis.sub_tasks)} subtasks. "
+                    "Could you prioritize the most important ones?"
+                )
+
+        return questions
+
+    def _generate_routing_question(self) -> Question:
+        """Generate question about routing preferences (RFC-023)."""
+        dp_descriptions = []
+        for dp in self._analysis.decision_points:
+            dp_descriptions.append(f"  - After {dp.after_step}: {dp.description}")
+
+        text = f"""Based on my analysis, I've identified these decision points:
+
+{chr(10).join(dp_descriptions)}
+
+How would you like to handle routing at these points?
+
+Options:
+1. **auto** (recommended) - Use rules where possible, LLM only when rules can't decide
+2. **rules_only** - Only use deterministic rules, fail if can't decide
+3. **ask_each_time** - Pause and ask user at each decision point
+4. **full_llm** - Always use LLM for routing (more flexible but more expensive)
+
+For quality={self.quality}, I recommend: {'rules_only' if self.quality >= 80 else 'auto'}"""
+
+        return Question(
+            text=text,
+            options=["auto", "rules_only", "ask_each_time", "full_llm"],
+            field_name="routing_preference",
+        )
 
     async def answer(self, response: str) -> None:
         """
@@ -220,10 +307,15 @@ class InteractiveSession:
         Args:
             response: User's answer
         """
+        if self._state == SessionState.ROUTING_CONFIG:
+            # Handle routing preference answer
+            await self._handle_routing_answer(response)
+            return
+
         if self._state != SessionState.GATHERING_INFO:
             raise RuntimeError(
                 f"Cannot answer in state {self._state.value}. "
-                f"Expected GATHERING_INFO."
+                f"Expected GATHERING_INFO or ROUTING_CONFIG."
             )
 
         if not self._current_question:
@@ -238,77 +330,133 @@ class InteractiveSession:
             "content": response,
         })
 
-        # Check if more questions needed
-        from llmteam.builder import DynamicTeamBuilder
-
-        builder = DynamicTeamBuilder(verbose=False)
-
-        # Build context from task + answers
-        context = f"{self.task}\n\nAdditional context:\n"
-        for key, value in self._answers.items():
-            context += f"- {value}\n"
-
-        questions = await builder.ask_clarifying_questions(context)
-
-        if questions:
-            # More questions needed
-            q_index = len(self._answers)
-            self._current_question = Question(
-                text=questions[0],
-                field_name=f"clarification_{q_index}",
-            )
+        # Check if we need routing config (for quality >= 60 with decision points)
+        if self.quality >= 60 and self._analysis and self._analysis.decision_points:
+            self._state = SessionState.ROUTING_CONFIG
+            self._current_question = self._generate_routing_question()
             self._messages.append({
                 "role": "assistant",
-                "content": questions[0],
+                "content": self._current_question.text,
             })
         else:
             # Ready to propose
             self._current_question = None
             await self._generate_proposal()
 
+    async def _handle_routing_answer(self, response: str) -> None:
+        """Handle routing preference answer."""
+        # Parse response
+        response_lower = response.lower().strip()
+        if "auto" in response_lower:
+            self.routing_preference = "auto"
+        elif "rules_only" in response_lower or "rules only" in response_lower:
+            self.routing_preference = "rules_only"
+        elif "ask" in response_lower:
+            self.routing_preference = "ask_each_time"
+        elif "full" in response_lower or "llm" in response_lower:
+            self.routing_preference = "full_llm"
+        else:
+            self.routing_preference = "auto"
+
+        # Store in answers
+        self._answers["routing_preference"] = self.routing_preference
+
+        # Add to messages
+        self._messages.append({
+            "role": "user",
+            "content": response,
+        })
+
+        self._messages.append({
+            "role": "assistant",
+            "content": f"Got it. Using '{self.routing_preference}' routing mode.",
+        })
+
+        # Move to proposing
+        self._current_question = None
+        await self._generate_proposal()
+
     async def _generate_proposal(self) -> None:
         """Generate team proposal from task and answers."""
-        from llmteam.builder import DynamicTeamBuilder
+        from llmteam.configuration import Configurator
 
         self._state = SessionState.PROPOSING
-
-        builder = DynamicTeamBuilder(verbose=False)
 
         # Build full task description with answers
         full_task = self.task
         if self._answers:
             full_task += "\n\nAdditional requirements:\n"
-            for value in self._answers.values():
-                full_task += f"- {value}\n"
+            for key, value in self._answers.items():
+                if key != "routing_preference":
+                    full_task += f"- {value}\n"
 
-        # Generate blueprint
-        self._blueprint = await builder.analyze_task(full_task)
+        # Use Configurator for full configuration
+        configurator = Configurator(routing_mode=self.routing_mode, quality=self.quality)
 
-        # Convert to proposal
-        self._proposal = TeamProposal(
-            agents=[
-                {
-                    "role": agent.role,
-                    "purpose": agent.purpose,
-                    "model": agent.model,
-                    "tools": agent.tools,
-                }
-                for agent in self._blueprint.agents
-            ],
-            flow=" → ".join(a.role for a in self._blueprint.agents),
-            decision_points=[],  # TODO: Add when blueprint supports decision points
-            estimated_cost_min=0.05,  # TODO: Calculate from blueprint
-            estimated_cost_max=0.20,
-        )
+        try:
+            self._config_output = await configurator.configure(
+                task=full_task,
+                quality=self.quality,
+                constraints={},
+                routing_mode=self.routing_mode,
+            )
+
+            # Apply routing preference to decision points
+            decision_points = self._apply_routing_preference(
+                self._config_output.decision_points
+            )
+
+            # Convert to proposal
+            self._proposal = TeamProposal(
+                agents=self._config_output.agents,
+                flow=self._config_output.flow,
+                decision_points=[dp.to_dict() for dp in decision_points],
+                estimated_cost_min=self._config_output.estimated_cost.min_cost if self._config_output.estimated_cost else 0.05,
+                estimated_cost_max=self._config_output.estimated_cost.max_cost if self._config_output.estimated_cost else 0.20,
+                adaptive_cost=self._config_output.estimated_cost.adaptive_cost if self._config_output.estimated_cost else 0.0,
+            )
+
+        except Exception as e:
+            # Fallback to simple proposal
+            self._proposal = TeamProposal(
+                agents=[
+                    {
+                        "role": "worker",
+                        "type": "llm",
+                        "purpose": "Process the task",
+                        "prompt": f"Complete this task: {self.task}\n\nInput: {{input}}",
+                        "model": "gpt-4o-mini",
+                    }
+                ],
+                flow="worker",
+                decision_points=[],
+                estimated_cost_min=0.01,
+                estimated_cost_max=0.05,
+            )
 
         # Add proposal message
-        proposal_text = f"I propose the following team:\n\n{self.plan}\n\nWould you like to proceed?"
+        proposal_text = f"I propose the following team:\n\n{self.plan}\n\nWould you like to proceed or make adjustments?"
         self._messages.append({
             "role": "assistant",
             "content": proposal_text,
         })
 
-        self._state = SessionState.PROPOSING
+    def _apply_routing_preference(self, decision_points: List) -> List:
+        """Apply routing preference to decision points."""
+        from llmteam.configuration.models import DecisionPointConfig
+
+        updated = []
+        for dp in decision_points:
+            if self.routing_preference == "rules_only":
+                # Remove LLM fallback
+                dp.llm_fallback = None
+            elif self.routing_preference == "full_llm":
+                # Clear rules, keep only LLM
+                dp.rules = []
+            # "auto" and "ask_each_time" keep configuration as-is
+            updated.append(dp)
+
+        return updated
 
     async def adjust(self, adjustment: str) -> None:
         """
@@ -323,10 +471,8 @@ class InteractiveSession:
                 f"Expected PROPOSING or READY."
             )
 
-        if not self._blueprint:
+        if not self._proposal:
             raise RuntimeError("No proposal to adjust")
-
-        from llmteam.builder import DynamicTeamBuilder
 
         # Add adjustment to messages
         self._messages.append({
@@ -334,27 +480,12 @@ class InteractiveSession:
             "content": adjustment,
         })
 
-        builder = DynamicTeamBuilder(verbose=False)
-
-        # Refine blueprint
-        self._blueprint = await builder.refine_blueprint(self._blueprint, adjustment)
-
-        # Update proposal
-        self._proposal = TeamProposal(
-            agents=[
-                {
-                    "role": agent.role,
-                    "purpose": agent.purpose,
-                    "model": agent.model,
-                    "tools": agent.tools,
-                }
-                for agent in self._blueprint.agents
-            ],
-            flow=" → ".join(a.role for a in self._blueprint.agents),
-            decision_points=self._proposal.decision_points if self._proposal else [],
-            estimated_cost_min=0.05,
-            estimated_cost_max=0.25,
-        )
+        # Check if adjustment is about routing
+        adjustment_lower = adjustment.lower()
+        if "routing" in adjustment_lower or "decision" in adjustment_lower or "llm fallback" in adjustment_lower:
+            await self._adjust_routing(adjustment)
+        else:
+            await self._adjust_agents(adjustment)
 
         # Add updated proposal message
         proposal_text = f"Updated team:\n\n{self.plan}\n\nWould you like to proceed?"
@@ -362,6 +493,65 @@ class InteractiveSession:
             "role": "assistant",
             "content": proposal_text,
         })
+
+    async def _adjust_routing(self, adjustment: str) -> None:
+        """Adjust routing configuration based on user request."""
+        adjustment_lower = adjustment.lower()
+
+        # Parse common adjustments
+        if "remove llm" in adjustment_lower or "no llm" in adjustment_lower:
+            # Remove LLM fallback from all decision points
+            for dp in self._proposal.decision_points:
+                dp["llm_fallback"] = None
+            self._proposal.adaptive_cost = 0.0
+
+        elif "rules only" in adjustment_lower:
+            self.routing_preference = "rules_only"
+            for dp in self._proposal.decision_points:
+                dp["llm_fallback"] = None
+            self._proposal.adaptive_cost = 0.0
+
+        # Update state
+        self._state = SessionState.PROPOSING
+
+    async def _adjust_agents(self, adjustment: str) -> None:
+        """Adjust agent configuration based on user request."""
+        from llmteam.configuration import Configurator
+
+        # Use LLM to understand and apply adjustment
+        configurator = Configurator(routing_mode=self.routing_mode, quality=self.quality)
+
+        # Re-configure with adjustment as additional context
+        full_task = f"{self.task}\n\nAdjustment: {adjustment}"
+        if self._answers:
+            full_task += "\n\nPrevious context:\n"
+            for key, value in self._answers.items():
+                if key != "routing_preference":
+                    full_task += f"- {value}\n"
+
+        try:
+            self._config_output = await configurator.configure(
+                task=full_task,
+                quality=self.quality,
+                constraints={"adjustment": adjustment},
+                routing_mode=self.routing_mode,
+            )
+
+            # Update proposal
+            self._proposal = TeamProposal(
+                agents=self._config_output.agents,
+                flow=self._config_output.flow,
+                decision_points=[dp.to_dict() for dp in self._config_output.decision_points],
+                estimated_cost_min=self._config_output.estimated_cost.min_cost if self._config_output.estimated_cost else 0.05,
+                estimated_cost_max=self._config_output.estimated_cost.max_cost if self._config_output.estimated_cost else 0.25,
+                adaptive_cost=self._config_output.estimated_cost.adaptive_cost if self._config_output.estimated_cost else 0.0,
+            )
+
+        except Exception:
+            # Keep existing proposal if adjustment fails
+            pass
+
+        self._state = SessionState.PROPOSING
 
     async def confirm(self) -> None:
         """
@@ -375,15 +565,22 @@ class InteractiveSession:
                 f"Expected PROPOSING."
             )
 
-        if not self._blueprint:
+        if not self._proposal:
             raise RuntimeError("No proposal to confirm")
 
-        from llmteam.builder import DynamicTeamBuilder
+        from llmteam.team import LLMTeam
 
-        builder = DynamicTeamBuilder(verbose=False)
+        # Build team from proposal
+        self._team = LLMTeam(
+            team_id=f"session_{self.session_id[:8]}",
+            orchestration=True,  # Enable ROUTER mode
+        )
 
-        # Build team from blueprint
-        self._team = builder.build_team(self._blueprint)
+        for agent in self._proposal.agents:
+            self._team.add_agent(agent)
+
+        if self._proposal.flow:
+            self._team.set_flow(self._proposal.flow)
 
         self._state = SessionState.READY
 
@@ -425,8 +622,10 @@ class InteractiveSession:
         # Build input from task and answers
         input_data = {
             "task": self.task,
-            **self._answers,
         }
+        for key, value in self._answers.items():
+            if key != "routing_preference":
+                input_data[key] = value
 
         try:
             self._result = await self._team.run(input_data)

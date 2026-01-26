@@ -52,6 +52,10 @@ from llmteam import LLMTeam
 from llmteam.agents.orchestrator import OrchestratorMode
 from llmteam.quality import QualityManager
 
+# RFC-022/RFC-023: Interactive session and Configurator
+from llmteam.team.interactive import InteractiveSession, SessionState as InteractiveState
+from llmteam.configuration import Configurator
+
 
 # === Page Config ===
 st.set_page_config(
@@ -73,6 +77,17 @@ def init_session_state():
         st.session_state.run_history = []
     if "api_key" not in st.session_state:
         st.session_state.api_key = get_saved_api_key()
+    # RFC-022: Routing mode
+    if "routing_mode" not in st.session_state:
+        st.session_state.routing_mode = "hybrid"
+    # RFC-023: Interactive session
+    if "interactive_session" not in st.session_state:
+        st.session_state.interactive_session = None
+    if "session_messages" not in st.session_state:
+        st.session_state.session_messages = []
+    # RFC-023: Decision points
+    if "decision_points" not in st.session_state:
+        st.session_state.decision_points = []
     # Always set env var from session state
     if st.session_state.api_key:
         os.environ["OPENAI_API_KEY"] = st.session_state.api_key
@@ -132,6 +147,28 @@ def render_sidebar():
         help="Orchestrator selects which agent to run",
     )
 
+    # RFC-022: Routing Mode
+    st.sidebar.divider()
+    st.sidebar.subheader("Routing Mode")
+    routing_mode = st.sidebar.radio(
+        "Routing Strategy",
+        options=["hybrid", "sequential", "dynamic"],
+        index=0,
+        help="""
+        - **hybrid** (recommended): Deterministic graph + AdaptiveStep for decisions
+        - **sequential**: Fixed agent order, no dynamic routing
+        - **dynamic**: LLM decides each step (flexible but expensive)
+        """,
+    )
+    st.session_state.routing_mode = routing_mode
+
+    if routing_mode == "hybrid":
+        st.sidebar.info("Rules-first routing with LLM fallback")
+    elif routing_mode == "dynamic":
+        st.sidebar.warning("Full LLM routing - higher cost")
+
+    st.sidebar.divider()
+
     max_cost = st.sidebar.number_input(
         "Max Cost per Run ($)",
         min_value=0.0,
@@ -150,9 +187,11 @@ def render_sidebar():
         config = {
             "team_id": team_id,
             "quality": quality,
+            "routing_mode": routing_mode,
             "orchestration": orchestration,
             "max_cost_per_run": max_cost,
             "agents": st.session_state.agents,
+            "decision_points": st.session_state.decision_points,
         }
         st.sidebar.download_button(
             "Download JSON",
@@ -166,6 +205,8 @@ def render_sidebar():
         try:
             config = json.load(uploaded)
             st.session_state.agents = config.get("agents", [])
+            st.session_state.decision_points = config.get("decision_points", [])
+            st.session_state.routing_mode = config.get("routing_mode", "hybrid")
             st.sidebar.success("Config loaded!")
             st.rerun()
         except Exception as e:
@@ -174,6 +215,7 @@ def render_sidebar():
     return {
         "team_id": team_id,
         "quality": quality,
+        "routing_mode": routing_mode,
         "orchestration": orchestration,
         "max_cost_per_run": max_cost,
     }
@@ -716,28 +758,287 @@ def render_quality_info(settings: Dict[str, Any]):
         st.write(f"- Complex: {manager.get_model('complex')}")
 
 
+# === RFC-022: Task Solver Tab ===
+def render_task_solver(settings: Dict[str, Any]):
+    """Render Task Solver tab - L1 API for one-call task solving."""
+    st.header("Task Solver")
+    st.markdown("""
+    **L1 API**: Describe your task and LLMTeam will automatically create a team and solve it.
+    """)
+
+    if not st.session_state.api_key:
+        st.warning("Set OpenAI API Key in the sidebar.")
+        return
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        task = st.text_area(
+            "Describe your task",
+            placeholder="Write an article about AI in medicine, 2000 words, professional tone...",
+            height=150,
+            key="task_solver_input",
+        )
+
+        constraints_text = st.text_input(
+            "Constraints (optional)",
+            placeholder="language: english, tone: professional, max length: 2000 words",
+            key="task_solver_constraints",
+        )
+
+    with col2:
+        st.markdown("**Settings:**")
+        quality = st.slider("Quality", 0, 100, settings["quality"], key="solver_quality")
+        max_cost = st.number_input("Max Cost ($)", 0.1, 10.0, 1.0, key="solver_max_cost")
+        routing_mode = st.selectbox(
+            "Routing Mode",
+            ["hybrid", "sequential", "dynamic"],
+            index=["hybrid", "sequential", "dynamic"].index(settings["routing_mode"]),
+            key="solver_routing_mode",
+        )
+
+    if st.button("Solve Task", type="primary", use_container_width=True):
+        if not task:
+            st.error("Please describe your task")
+            return
+
+        # Parse constraints
+        constraints = {}
+        if constraints_text:
+            for item in constraints_text.split(","):
+                if ":" in item:
+                    key, value = item.split(":", 1)
+                    constraints[key.strip()] = value.strip()
+
+        with st.spinner("Solving task..."):
+            result_container = st.empty()
+
+            async def solve():
+                try:
+                    result = await LLMTeam.solve(
+                        task=task,
+                        quality=quality,
+                        constraints=constraints,
+                        max_cost=max_cost,
+                        routing_mode=routing_mode,
+                    )
+                    return result
+                except Exception as e:
+                    return {"error": str(e)}
+
+            result = asyncio.run(solve())
+
+            with result_container.container():
+                st.subheader("Result")
+
+                if isinstance(result, dict) and "error" in result:
+                    st.error(f"Error: {result['error']}")
+                else:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        status = "Success" if result.success else "Failed"
+                        st.metric("Status", status)
+                    with col2:
+                        cost = f"${result.cost:.4f}" if hasattr(result, "cost") and result.cost else "N/A"
+                        st.metric("Cost", cost)
+                    with col3:
+                        duration = f"{result.duration:.1f}s" if hasattr(result, "duration") else "N/A"
+                        st.metric("Duration", duration)
+
+                    st.subheader("Output")
+                    if result.output:
+                        if isinstance(result.output, dict):
+                            st.json(result.output)
+                        else:
+                            st.write(result.output)
+
+                    # Show routing decisions if any
+                    if hasattr(result, "routing_decisions") and result.routing_decisions:
+                        with st.expander("Routing Decisions"):
+                            for decision in result.routing_decisions:
+                                method_icon = "rule" if decision.get("method") == "rule" else "brain"
+                                st.markdown(f"- **{decision.get('decision_id', 'unknown')}**: {decision.get('target')} ({method_icon})")
+
+
+# === RFC-023: Interactive Session Tab ===
+def render_interactive_session(settings: Dict[str, Any]):
+    """Render Interactive Session tab - L1/L2 API for Q&A."""
+    st.header("Interactive Session")
+    st.markdown("""
+    **L1 Interactive**: Have a conversation to clarify your task before execution.
+    """)
+
+    if not st.session_state.api_key:
+        st.warning("Set OpenAI API Key in the sidebar.")
+        return
+
+    # Session state display
+    session = st.session_state.interactive_session
+
+    col1, col2 = st.columns([3, 1])
+
+    with col2:
+        if session:
+            st.markdown("**Session State:**")
+            state_colors = {
+                "idle": "gray",
+                "gathering_info": "blue",
+                "routing_config": "yellow",
+                "proposing": "green",
+                "ready": "green",
+                "executing": "orange",
+                "completed": "green",
+                "failed": "red",
+            }
+            state = session.state.value
+            st.markdown(f":{state_colors.get(state, 'gray')}[{state}]")
+
+            st.markdown("**Quality:**")
+            st.write(session.quality)
+
+            st.markdown("**Routing:**")
+            st.write(session.routing_mode)
+
+            if st.button("Reset Session"):
+                st.session_state.interactive_session = None
+                st.session_state.session_messages = []
+                st.rerun()
+
+    with col1:
+        # Chat interface
+        chat_container = st.container()
+
+        with chat_container:
+            # Show message history
+            for msg in st.session_state.session_messages:
+                role = msg["role"]
+                content = msg["content"]
+                with st.chat_message(role):
+                    st.markdown(content)
+
+            # Show current question if any
+            if session and session.question:
+                with st.chat_message("assistant"):
+                    st.markdown(session.question)
+                    if session.question_options:
+                        st.markdown("**Options:** " + ", ".join(session.question_options))
+
+            # Show proposal if in proposing state
+            if session and session.state == InteractiveState.PROPOSING and session.plan:
+                with st.chat_message("assistant"):
+                    st.markdown("**Proposed Team:**")
+                    st.code(session.plan)
+
+        # Input area
+        if not session:
+            # Start new session
+            new_task = st.text_input("Describe your task to start a session", key="new_session_task")
+            col_start, col_quality = st.columns([2, 1])
+            with col_quality:
+                session_quality = st.slider("Quality", 0, 100, settings["quality"], key="session_quality")
+
+            if st.button("Start Session", type="primary"):
+                if new_task:
+                    with st.spinner("Starting session..."):
+                        async def start():
+                            s = InteractiveSession(
+                                task=new_task,
+                                quality=session_quality,
+                                routing_mode=settings["routing_mode"],
+                            )
+                            await s._start()
+                            return s
+
+                        st.session_state.interactive_session = asyncio.run(start())
+                        st.session_state.session_messages = [{"role": "user", "content": new_task}]
+                        st.rerun()
+
+        elif session.state in [InteractiveState.GATHERING_INFO, InteractiveState.ROUTING_CONFIG]:
+            # Answer question
+            answer = st.text_input("Your answer", key="session_answer")
+            if st.button("Send"):
+                if answer:
+                    with st.spinner("Processing..."):
+                        async def answer_q():
+                            await session.answer(answer)
+
+                        asyncio.run(answer_q())
+                        st.session_state.session_messages.append({"role": "user", "content": answer})
+                        st.rerun()
+
+        elif session.state == InteractiveState.PROPOSING:
+            # Adjust or confirm
+            col_adj, col_conf = st.columns(2)
+            with col_adj:
+                adjustment = st.text_input("Adjustment (optional)", key="session_adjustment")
+                if st.button("Adjust"):
+                    if adjustment:
+                        with st.spinner("Adjusting..."):
+                            async def adjust():
+                                await session.adjust(adjustment)
+
+                            asyncio.run(adjust())
+                            st.session_state.session_messages.append({"role": "user", "content": adjustment})
+                            st.rerun()
+
+            with col_conf:
+                if st.button("Confirm & Execute", type="primary"):
+                    with st.spinner("Executing..."):
+                        async def execute():
+                            result = await session.execute()
+                            return result
+
+                        result = asyncio.run(execute())
+
+                        st.subheader("Result")
+                        if result.success:
+                            st.success("Execution completed!")
+                            if result.output:
+                                st.write(result.output)
+                        else:
+                            st.error(f"Failed: {result.error}")
+
+        elif session.state == InteractiveState.COMPLETED:
+            st.success("Session completed!")
+            if session.result:
+                st.write(session.result.output)
+
+
 # === Main App ===
 def main():
     """Main application entry point."""
-    st.title("🎮 LLMTeam Playground")
-    st.markdown("Interactive testing interface for LLMTeam library")
+    st.title("LLMTeam Playground v6.1.0")
+    st.markdown("Interactive testing interface for LLMTeam library - RFC-022/RFC-023")
 
     # Sidebar
     settings = render_sidebar()
 
-    # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🤖 Agents", "▶️ Run", "📜 History", "📊 Quality"])
+    # Main tabs - RFC-022 adds Task Solver and Interactive
+    tabs = st.tabs([
+        "Task Solver",
+        "Interactive",
+        "Agents",
+        "Run",
+        "History",
+        "Quality"
+    ])
 
-    with tab1:
+    with tabs[0]:
+        render_task_solver(settings)
+
+    with tabs[1]:
+        render_interactive_session(settings)
+
+    with tabs[2]:
         render_agent_builder()
 
-    with tab2:
+    with tabs[3]:
         render_team_runner(settings)
 
-    with tab3:
+    with tabs[4]:
         render_history()
 
-    with tab4:
+    with tabs[5]:
         render_quality_info(settings)
 
 

@@ -1,49 +1,59 @@
 """
-Configuration module for CONFIGURATOR mode (RFC-005).
+Configuration module for CONFIGURATOR mode (RFC-005, RFC-023).
 
 Provides interactive team configuration via LLM assistance.
+
+RFC-023: Added Configurator class and decision point handling.
 
 Usage:
     from llmteam import LLMTeam
 
-    team = LLMTeam(team_id="content")
-
-    # Start configuration session
-    session = await team.configure(
-        task="Generate LinkedIn posts from press releases",
-        constraints={"tone": "professional", "length": "<300"}
+    # L1: One-call solve
+    result = await LLMTeam.solve(
+        task="Write an article about AI",
+        quality=70,
+        routing_mode="hybrid",
     )
 
-    # Review suggestions
-    print(session.suggested_agents)
-    print(session.suggested_flow)
+    # L1: Interactive session
+    session = await LLMTeam.start(
+        task="Create a marketing campaign",
+        quality=70,
+    )
+    print(session.question)
+    await session.answer("Fitness app for millennials")
+    result = await session.execute()
 
-    # Modify if needed
-    session.modify_agent("writer", prompt="Write in first person...")
-
-    # Test
-    test = await session.test_run({"press_release": "..."})
-    print(test.analysis)
-    print(test.recommendations)
-
-    # Apply when ready
-    await session.apply()
-
-    # Use the configured team
-    result = await team.run({"press_release": "..."})
+    # L2: Configure and modify
+    team = await LLMTeam.create_configured(task="Write article")
+    team.remove_agent("editor")
+    result = await team.run({"topic": "AI trends"})
 """
 
 from llmteam.configuration.models import (
+    # Session state
     SessionState,
+    # Suggestions
     AgentSuggestion,
     TestRunResult,
     TaskAnalysis,
     PipelinePreview,
+    # RFC-023: Decision points
+    DecisionPointAnalysis,
+    DecisionPointConfig,
+    RoutingRuleConfig,
+    RouteConfig,
+    LLMFallbackConfigData,
+    ConfiguratorCostEstimate,
+    ConfiguratorOutput,
 )
 
 from llmteam.configuration.prompts import ConfiguratorPrompts
 
 from llmteam.configuration.session import ConfigurationSession
+
+# RFC-023: Standalone Configurator
+from llmteam.configuration.configurator import Configurator
 
 __all__ = [
     # Models
@@ -52,8 +62,18 @@ __all__ = [
     "TestRunResult",
     "TaskAnalysis",
     "PipelinePreview",
+    # RFC-023: Decision points
+    "DecisionPointAnalysis",
+    "DecisionPointConfig",
+    "RoutingRuleConfig",
+    "RouteConfig",
+    "LLMFallbackConfigData",
+    "ConfiguratorCostEstimate",
+    "ConfiguratorOutput",
     # Prompts
     "ConfiguratorPrompts",
     # Session
     "ConfigurationSession",
+    # RFC-023: Configurator
+    "Configurator",
 ]
