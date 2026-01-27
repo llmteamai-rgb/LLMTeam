@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from llmteam.quality import CostEstimate
     from llmteam.orchestration.models import GroupContext, EscalationResponse
     from llmteam.team.lifecycle import TeamLifecycle, TeamState
+    from llmteam.engine.engine import ExecutionEngine
+    from llmteam.runtime import RuntimeContext, StepContext
 
 from llmteam.agents.factory import AgentFactory
 from llmteam.agents.config import AgentConfig
@@ -1357,10 +1359,13 @@ class LLMTeam:
 
     # Internal
 
-    def _get_runner(self):
+    def _get_runner(self) -> "ExecutionEngine":
         """Get or create ExecutionEngine.
 
         Requires engine module: pip install llmteam-ai[engine]
+
+        Returns:
+            ExecutionEngine instance for workflow execution.
         """
         if not _ENGINE_AVAILABLE:
             raise RuntimeError(
@@ -1374,8 +1379,15 @@ class LLMTeam:
             self._runner = ExecutionEngine()
         return self._runner
 
-    def _build_runtime(self, run_id: str):
-        """Build RuntimeContext for execution."""
+    def _build_runtime(self, run_id: str) -> "StepContext":
+        """Build RuntimeContext for execution.
+
+        Args:
+            run_id: Unique identifier for this run.
+
+        Returns:
+            StepContext for step-level resource access.
+        """
         from llmteam.runtime import RuntimeContextFactory
 
         if self._runtime:

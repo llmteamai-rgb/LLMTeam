@@ -22,9 +22,6 @@ from llmteam.team.interactive import (
     TeamProposal,
 )
 
-# Backwards compatibility
-TeamConfig = None  # Will be removed, use LLMTeam constructor args directly
-
 __all__ = [
     # Main classes
     "LLMTeam",

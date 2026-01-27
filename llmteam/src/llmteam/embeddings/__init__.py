@@ -10,10 +10,12 @@ from llmteam.embeddings.huggingface import HuggingFaceEmbedding, MODEL_DIMENSION
 from llmteam.embeddings.cache import EmbeddingCache
 
 __all__ = [
+    # Public API
     "BaseEmbedding",
     "OpenAIEmbedding",
     "HuggingFaceEmbedding",
+    "EmbeddingCache",
+    # Internal: model dimension mappings (use provider.dimensions property instead)
     "OPENAI_DIMENSIONS",
     "HF_DIMENSIONS",
-    "EmbeddingCache",
 ]

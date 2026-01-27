@@ -16,6 +16,7 @@ from llmteam.agents.base import BaseAgent
 if TYPE_CHECKING:
     from llmteam.team import LLMTeam
     from llmteam.providers.base import LLMResponse
+    from llmteam.runtime.protocols import LLMProvider
 
 
 class LLMAgent(BaseAgent):
@@ -340,11 +341,14 @@ class LLMAgent(BaseAgent):
         if self._event_callback:
             await self._event_callback(event_type, data, self.agent_id)
 
-    def _get_provider(self, model: Optional[str] = None):
+    def _get_provider(self, model: Optional[str] = None) -> "LLMProvider":
         """Get LLM provider from runtime context or create default.
 
         Args:
             model: Model name to resolve. Defaults to self.model.
+
+        Returns:
+            LLMProvider instance for making LLM calls.
         """
         resolve_model = model or self.model
 

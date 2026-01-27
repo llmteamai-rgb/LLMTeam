@@ -451,7 +451,6 @@ from llmteam.team import (
     ContextMode,
     TeamResult,
     TeamSnapshot,
-    TeamConfig,
     # RFC-022: Interactive session
     InteractiveSession,
     InteractiveSessionState,
@@ -898,7 +897,6 @@ __all__ = [
     "ContextMode",
     "TeamResult",
     "TeamSnapshot",
-    "TeamConfig",
     # RFC-022: Interactive session
     "InteractiveSession",
     "InteractiveSessionState",
